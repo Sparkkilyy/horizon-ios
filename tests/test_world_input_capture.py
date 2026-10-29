@@ -213,7 +213,8 @@ fn main() {
 '''
         capture = method(source, "capture").replace(
             "horizon_client::mouse::mouse_position_after_grab_change",
-            "mouse_position_after_grab_change")
+            "mouse_position_after_grab_change").replace(
+            "horizon_client::gfx::window_size(window)", "window.inner_size()")
         fixture = fixture.replace("HELPER", function(mouse, "mouse_position_after_grab_change"))
         fixture = fixture.replace("METHODS", capture + "\n" +
                                   method(source, "capture_loaded_world"))
