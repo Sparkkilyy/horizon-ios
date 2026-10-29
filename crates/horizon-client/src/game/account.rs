@@ -61,7 +61,8 @@ pub(super) fn restore_in_background() {
                 log::warn!("Horizon: could not save the Microsoft account: {e}");
             }
         }
-        Err((e, still)) => {
+        Err(err) => {
+            let (e, still) = *err;
             log::warn!("Horizon: Microsoft account not renewed: {e}");
             match still {
                 Some(saved) => {
@@ -158,10 +159,7 @@ impl Game<'_> {
                             "Sign in to join online servers with your own name and skin.".into(),
                             white,
                         ));
-                        lines.push((
-                            "The account must own Minecraft: Java Edition.".into(),
-                            grey,
-                        ));
+                        lines.push(("The account must own Minecraft: Java Edition.".into(), grey));
                         (
                             lines,
                             vec![(Action::SignIn, "Sign In"), (Action::Done, "Done")],
@@ -185,7 +183,11 @@ impl Game<'_> {
             .iter()
             .enumerate()
             .map(|(i, &(action, label))| {
-                (action, label, [w / 2.0 - 100.0, top + i as f32 * 24.0, 200.0, 20.0])
+                (
+                    action,
+                    label,
+                    [w / 2.0 - 100.0, top + i as f32 * 24.0, 200.0, 20.0],
+                )
             })
             .collect()
     }
@@ -202,14 +204,38 @@ impl Game<'_> {
         let tw = HudBatch::text_width(atlas, title);
         let (lines, buttons) = self.account_view();
         let top = (h / 2.0 - 10.0 - lines.len() as f32 * 6.0).max(40.0);
-        batch.text(atlas, title, (w - tw) / 2.0, top - 24.0, rgba(255, 255, 255, 255), true);
+        batch.text(
+            atlas,
+            title,
+            (w - tw) / 2.0,
+            top - 24.0,
+            rgba(255, 255, 255, 255),
+            true,
+        );
         for (i, (line, color)) in lines.iter().enumerate() {
             let lw = HudBatch::text_width(atlas, line);
-            batch.text(atlas, line, ((w - lw) / 2.0).max(4.0), top + i as f32 * 12.0, *color, true);
+            batch.text(
+                atlas,
+                line,
+                ((w - lw) / 2.0).max(4.0),
+                top + i as f32 * 12.0,
+                *color,
+                true,
+            );
         }
         for (_, label, [x, y, bw, bh]) in self.account_buttons((w, h), lines.len(), &buttons) {
             let hover = ui::hovered(self.cursor, x, y, bw, bh);
-            ui::button(batch, atlas, x, y, bw, bh, &Text::literal(label), true, hover);
+            ui::button(
+                batch,
+                atlas,
+                x,
+                y,
+                bw,
+                bh,
+                &Text::literal(label),
+                true,
+                hover,
+            );
         }
     }
 

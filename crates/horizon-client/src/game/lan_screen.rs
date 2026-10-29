@@ -988,15 +988,16 @@ impl Game<'_> {
             self.world_options_text(event.text.as_deref());
         }
     }
-    /// Digits typed into the port field (the keyboard, or a controller's
-    /// on-screen keyboard), and its backspace.
     /// A field of World Options has focus: the LAN port, or a game rule's value.
+    #[cfg(target_os = "ios")]
     pub(super) fn world_options_typing(&self) -> bool {
         self.world_options
             .as_ref()
             .is_some_and(|o| o.port.focused || o.rules.as_ref().is_some_and(|r| r.typing()))
     }
 
+    /// Digits typed into the port field (the keyboard, or a controller's
+    /// on-screen keyboard), and its backspace.
     pub(super) fn world_options_text(&mut self, text: Option<&str>) {
         if let Some(rules) = self
             .world_options
