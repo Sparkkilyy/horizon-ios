@@ -51,6 +51,9 @@ pub(super) struct Pads {
     /// The system keyboard was asked to show.
     #[cfg(target_os = "ios")]
     pub(super) keyboard_shown: bool,
+    /// Sneak held down by the touch Sneak button while flying or swimming.
+    #[cfg(target_os = "ios")]
+    pub(super) touch_sneak: bool,
     /// The player hid the keyboard (its button, or Return) while a field kept focus: it stays
     /// hidden until their next tap.
     #[cfg(target_os = "ios")]
@@ -90,7 +93,13 @@ mod hardware {
     use serde_json::{Value, json};
 
     impl Pads {
+        /// On iOS, a Bluetooth or MFi controller through GameController (horizon-ios).
         pub(super) fn read(&mut self) -> PadState {
+            #[cfg(target_os = "ios")]
+            if let Some((state, style)) = horizon_ios::controller() {
+                self.style = style;
+                return state;
+            }
             PadState::default()
         }
     }
@@ -335,6 +344,16 @@ impl Game<'_> {
     /// Vibrate the active pad, when vibration is on and the pad is the one
     /// playing (a pad lying idle while the mouse plays stays still).
     pub(super) fn pad_rumble(&mut self, rumble: Rumble) {
+        // Playing by touch: the phone's own haptics (Options › Controls › Touch Controls).
+        #[cfg(target_os = "ios")]
+        if !self.pad.in_use {
+            if self.settings.touch.haptics
+                && let Some(pulse) = rumble.pulse()
+            {
+                horizon_ios::haptic(pulse.strong.max(pulse.weak));
+            }
+            return;
+        }
         let settings = &self.settings.controller;
         if !settings.enabled || !settings.vibration || !self.pad.in_use {
             return;

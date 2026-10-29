@@ -15479,6 +15479,12 @@ enum App {
 /// until it is back.
 static BACKGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 impl ApplicationHandler for App {
+    fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "ios")]
+        if let App::Ready(game) = self {
+            game.ios_memory_warning();
+        }
+    }
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         log::info!("Horizon: suspended");
         BACKGROUND.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -15662,8 +15668,34 @@ impl App {
             log::error!("Horizon: {error}");
             crash::report_error(&logging::game_home(), "client", &*error);
             logging::flush();
+            // The resources failed to load (missing, or from another version): say what to do
+            // over the loading screen rather than vanish.
+            if let App::Loading(loading) = self
+                && let Some(window) = &loading.window
+            {
+                horizon_ios::alert(
+                    ui_view_controller(window),
+                    "Horizon can't load its resources",
+                    &format!(
+                        "{error}\n\nCopy the prepared resources folder (\".local/horizon-client/26.3\" \
+                         in your computer's Horizon install) into Files › On My iPhone › Horizon, \
+                         name it \"resources\", then close and reopen Horizon."
+                    ),
+                );
+                return;
+            }
             std::process::exit(1);
         }
+    }
+}
+
+/// The window's root view controller, which presents iOS alerts.
+#[cfg(target_os = "ios")]
+fn ui_view_controller(window: &Window) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match window.window_handle().ok()?.as_raw() {
+        RawWindowHandle::UiKit(handle) => handle.ui_view_controller,
+        _ => None,
     }
 }
 

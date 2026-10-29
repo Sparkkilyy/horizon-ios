@@ -44,11 +44,11 @@ jobs:
           shared-key: ios
 
       - name: Touch control tests
-        run: cargo test --locked -p horizon-client-input --lib touch
+        run: cargo test -p horizon-client-input --lib touch
 
       - name: Build
         run: >
-          cargo build --profile fast --locked --target aarch64-apple-ios
+          cargo build --profile fast --target aarch64-apple-ios
           -p horizon-client --bin horizon-client --no-default-features --features audio
 
       - name: Bundle
@@ -100,6 +100,12 @@ jobs:
         with:
           name: Horizon-ipa
           path: Horizon.ipa
+
+      # The lockfile cargo resolved, for committing back (this machine-less workflow adds crates).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cargo-lock
+          path: Cargo.lock
 
       - name: Publish ios-latest
         env:

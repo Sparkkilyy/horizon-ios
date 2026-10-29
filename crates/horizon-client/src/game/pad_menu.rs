@@ -866,7 +866,8 @@ impl Game<'_> {
     /// the window like a real keyboard).
     fn pad_open_keyboard(&mut self) {
         // Without xdg-open (macOS, Windows), Horizon's keyboard instead.
-        if gamepad::steam_keyboard(self.settings.controller.keyboard)
+        if !cfg!(target_os = "ios")
+            && gamepad::steam_keyboard(self.settings.controller.keyboard)
             && std::process::Command::new("xdg-open")
                 .arg("steam://open/keyboard")
                 .stdin(std::process::Stdio::null())

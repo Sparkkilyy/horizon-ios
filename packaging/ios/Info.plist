@@ -84,6 +84,12 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<!-- LAN worlds and Play with Friends: iOS asks before the local network is used. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Horizon joins and hosts worlds on your local network (LAN and Play with Friends).</string>
+	<!-- Controllers: their buttons drive the game, not the system. -->
+	<key>GCSupportsControllerUserInteraction</key>
+	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

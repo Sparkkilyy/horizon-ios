@@ -98,24 +98,39 @@ pub fn helper_clipboard_contents(clipboard: &str) -> String {
     strip_formatting(&clipboard.replace('\r', ""))
 }
 
-/// No system clipboard on iOS yet (UIPasteboard): an arboard that never connects, so
-/// text copied in the game is still pasted in the game.
+/// The system pasteboard on iOS, which the game hands in at start (`set_ios_pasteboard`; the
+/// UIKit calls are in horizon-ios). Until then, text copied in the game is pasted in the game.
+#[cfg(target_os = "ios")]
+static IOS_PASTEBOARD: std::sync::OnceLock<(fn(&str), fn() -> Option<String>)> =
+    std::sync::OnceLock::new();
+
+/// The iOS pasteboard's copy and paste.
+#[cfg(target_os = "ios")]
+pub fn set_ios_pasteboard(copy: fn(&str), paste: fn() -> Option<String>) {
+    let _ = IOS_PASTEBOARD.set((copy, paste));
+}
+
+/// arboard's interface over the iOS pasteboard.
 #[cfg(target_os = "ios")]
 mod arboard {
-    pub struct Clipboard;
+    pub struct Clipboard(fn(&str), fn() -> Option<String>);
     pub enum Error {
         ContentNotAvailable,
         Unavailable,
     }
     impl Clipboard {
         pub fn new() -> Result<Self, Error> {
-            Err(Error::Unavailable)
+            super::IOS_PASTEBOARD
+                .get()
+                .map(|&(copy, paste)| Clipboard(copy, paste))
+                .ok_or(Error::Unavailable)
         }
         pub fn get_text(&mut self) -> Result<String, Error> {
-            Err(Error::ContentNotAvailable)
+            (self.1)().ok_or(Error::ContentNotAvailable)
         }
-        pub fn set_text(&mut self, _: String) -> Result<(), Error> {
-            Err(Error::Unavailable)
+        pub fn set_text(&mut self, text: String) -> Result<(), Error> {
+            (self.0)(&text);
+            Ok(())
         }
     }
 }

@@ -1,0 +1,39 @@
+[package]
+name = "horizon-ios"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.85"
+description = "The iOS system calls the crates that forbid unsafe code can't make: links, the pasteboard, haptics, alerts, game controllers"
+
+[dependencies]
+horizon-client-input = { path = "../horizon-client-input" }
+
+# The versions winit 0.30 already uses (objc2 0.5), so nothing is built twice.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.5.2"
+block2 = "0.5.1"
+objc2-foundation = { version = "0.2.2", features = ["NSString", "NSURL", "NSDictionary", "NSArray", "NSGeometry"] }
+objc2-ui-kit = { version = "0.2.2", features = [
+    "block2",
+    "UIApplication",
+    "UIResponder",
+    "UIViewController",
+    "UIAlertController",
+    "UIFeedbackGenerator",
+    "UIImpactFeedbackGenerator",
+    "UIPasteboard",
+] }
+objc2-game-controller = { version = "0.2.2", features = [
+    "GCController",
+    "GCDevice",
+    "GCExtendedGamepad",
+    "GCPhysicalInputProfile",
+    "GCControllerElement",
+    "GCControllerButtonInput",
+    "GCControllerAxisInput",
+    "GCControllerDirectionPad",
+] }
+
+[lints]
+workspace = true

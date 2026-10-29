@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 pub const HOLD_TO_BREAK: Duration = Duration::from_millis(300);
 /// A finger lifted sooner than this, without moving far, is a tap.
 pub const TAP: Duration = Duration::from_millis(250);
+/// The pause button held this long shows the debug screen (F3) instead of pausing.
+pub const HOLD_FOR_DEBUG: Duration = Duration::from_millis(500);
 /// A hotbar slot held this long drops its item.
 pub const HOLD_TO_DROP: Duration = Duration::from_millis(600);
 /// How far (GUI pixels) a finger may move and still tap or hold.
@@ -88,15 +90,30 @@ pub struct TouchLayout {
     pub width: f32,
     pub height: f32,
     /// Kept clear at the left and right edges: a phone's notch or rounded corners.
-    pub inset: f32,
+    pub left: f32,
+    pub right: f32,
+    /// Kept clear at the top (the status bar's area in portrait, a corner's curve).
+    pub top: f32,
+    /// The buttons' size, 1 being Bedrock's.
+    pub scale: f32,
 }
 
 impl TouchLayout {
+    /// A phone's layout without its real safe area: an iPhone's notch is about 36 GUI pixels.
     pub fn new(width: f32, height: f32) -> Self {
+        let side = if width >= 480.0 { 36.0 } else { 8.0 };
+        Self::with(width, height, [side, 0.0, side], 1.0)
+    }
+    /// `insets`: the safe area's left, top and right margins in GUI pixels; `scale`: the
+    /// buttons' size setting.
+    pub fn with(width: f32, height: f32, [left, top, right]: [f32; 3], scale: f32) -> Self {
         Self {
             width,
             height,
-            inset: if width >= 480.0 { 36.0 } else { 8.0 },
+            left: left.max(8.0),
+            right: right.max(8.0),
+            top: top.max(0.0) + 4.0,
+            scale,
         }
     }
     /// Hotbar slot `n` (0..9), as vanilla draws the bar: 182x22 centred at the bottom.
@@ -107,15 +124,26 @@ impl TouchLayout {
     /// Bedrock's layout: jump on the right with sneak under it and sprint to its left, the
     /// small chat, perspective and pause buttons along the top, "..." at the hotbar's end.
     pub fn button(&self, button: TouchButton) -> Rect {
-        let (w, h, m) = (self.width, self.height, self.inset);
-        let big = 30.0;
-        let small = 18.0;
-        let jump = Rect::new(w - m - big, (h * 0.55).floor(), big, big);
-        let top = |n: f32| Rect::new(w - m - small - n * (small + 5.0), 4.0, small, small);
+        let (w, h, k) = (self.width, self.height, self.scale);
+        let big = (30.0 * k).round();
+        let small = (18.0 * k).round();
+        let gap = (5.0 * k).round();
+        let x = w - self.right - big;
+        // Sneak under jump, both above the hotbar's height.
+        let y = ((h * 0.55).floor()).min(h - 2.0 * big - gap - 8.0);
+        let jump = Rect::new(x, y, big, big);
+        let top = |n: f32| {
+            Rect::new(
+                w - self.right - small - n * (small + gap),
+                self.top,
+                small,
+                small,
+            )
+        };
         match button {
             TouchButton::Jump => jump,
-            TouchButton::Sneak => Rect::new(jump.x, jump.y + big + 5.0, big, big),
-            TouchButton::Sprint => Rect::new(jump.x - big - 5.0, jump.y, big, big),
+            TouchButton::Sneak => Rect::new(jump.x, jump.y + big + gap, big, big),
+            TouchButton::Sprint => Rect::new(jump.x - big - gap, jump.y, big, big),
             TouchButton::Inventory => {
                 let slot = self.hotbar_slot(8);
                 Rect::new(slot.x + slot.w + 3.0, h - 22.0, 22.0, 22.0)
@@ -123,21 +151,30 @@ impl TouchLayout {
             TouchButton::Pause => top(0.0),
             TouchButton::Chat => top(1.0),
             TouchButton::Perspective => top(2.0),
-            // Below and right of the crosshair, under the right thumb.
-            TouchButton::Use => Rect::new((w / 2.0).floor() + 24.0, (h / 2.0).floor() + 14.0, 40.0, 18.0),
+            // Just under the crosshair.
+            TouchButton::Use => {
+                let (uw, uh) = ((40.0 * k).round(), (18.0 * k).round());
+                Rect::new((w / 2.0).floor() - (uw / 2.0).floor(), (h / 2.0).floor() + 14.0, uw, uh)
+            }
         }
+    }
+    /// The joystick's reach from where the thumb landed.
+    pub fn stick_radius(&self) -> f32 {
+        STICK_RADIUS * self.scale
     }
     /// Where a thumb starts the joystick: the left part of the screen, below the top.
     pub fn joystick_zone(&self) -> Rect {
-        Rect::new(0.0, 28.0, self.width * 0.4, self.height - 28.0)
+        let top = self.top + 24.0;
+        Rect::new(0.0, top, self.width * 0.4, self.height - top)
     }
     /// The joystick's centre while no thumb is on it.
     pub fn joystick_rest(&self) -> [f32; 2] {
-        [self.inset + 40.0, self.height - 56.0]
+        let r = self.stick_radius();
+        [self.left + r + 14.0, self.height - r - 30.0]
     }
     /// The close button over menus (Escape), top right.
     pub fn close(&self) -> Rect {
-        Rect::new(self.width - self.inset - 20.0, 4.0, 20.0, 20.0)
+        Rect::new(self.width - self.right - 20.0, self.top, 20.0, 20.0)
     }
     /// The button that hides the system keyboard, left of the close button: the iPhone's
     /// keyboard has no key of its own for it.
@@ -189,6 +226,10 @@ pub struct TouchFrame {
     pub hotbar: Option<usize>,
     /// A hotbar slot was held: drop the selected item.
     pub drop: bool,
+    /// Sneak is held in descend mode: sneak (fly or swim down) while it is.
+    pub sneak_held: bool,
+    /// The pause button was held: show or hide the debug screen (F3).
+    pub debug: bool,
 }
 
 /// The fingers on the screen and what each does.
@@ -197,6 +238,8 @@ pub struct TouchControls {
     pub layout: TouchLayout,
     /// The crosshair is on an entity: the Use button shows.
     pub use_shown: bool,
+    /// Flying or in water: Sneak descends while held instead of toggling (Bedrock's fly down).
+    pub descend: bool,
     fingers: HashMap<u64, Role>,
     look: [f32; 2],
     tap: bool,
@@ -205,6 +248,10 @@ pub struct TouchControls {
     /// Buttons lifted before any frame saw them: iOS often delivers a touch near the screen's
     /// edge only when it ends, so its start and end come between two frames.
     quick: Vec<TouchButton>,
+    /// The finger on the pause button, since when, and whether its hold showed the debug screen:
+    /// pause acts when lifted, so a hold can do something else.
+    pause: Option<(u64, Instant, bool)>,
+    debug: bool,
 }
 
 impl Default for TouchControls {
@@ -212,12 +259,15 @@ impl Default for TouchControls {
         Self {
             layout: TouchLayout::new(0.0, 0.0),
             use_shown: false,
+            descend: false,
             fingers: HashMap::new(),
             look: [0.0; 2],
             tap: false,
             hotbar: None,
             drop: false,
             quick: Vec::new(),
+            pause: None,
+            debug: false,
         }
     }
 }
@@ -245,6 +295,9 @@ impl TouchControls {
             .into_iter()
             .find(|&b| self.shown(b) && layout.button(b).contains(at))
         {
+            if button == TouchButton::Pause {
+                self.pause = Some((id, now, false));
+            }
             Role::Button(button, false)
         } else if layout.joystick_zone().contains(at) && !self.has_joystick() {
             Role::Joystick { origin: at, at }
@@ -282,6 +335,11 @@ impl TouchControls {
             }) if now.duration_since(since) < TAP && distance(start, at) <= SLOP => {
                 self.tap = true;
             }
+            Some(Role::Button(TouchButton::Pause, _)) => {
+                if let Some((_, _, false)) = self.pause.take() {
+                    self.quick.push(TouchButton::Pause);
+                }
+            }
             Some(Role::Button(button, false)) => self.quick.push(button),
             _ => {}
         }
@@ -298,6 +356,8 @@ impl TouchControls {
         self.hotbar = None;
         self.drop = false;
         self.quick.clear();
+        self.pause = None;
+        self.debug = false;
     }
 
     /// The button is on screen.
@@ -315,10 +375,8 @@ impl TouchControls {
     pub fn stick(&self) -> Option<([f32; 2], [f32; 2])> {
         self.fingers.values().find_map(|r| match *r {
             Role::Joystick { origin, at } => {
-                let mut v = [
-                    (at[0] - origin[0]) / STICK_RADIUS,
-                    (origin[1] - at[1]) / STICK_RADIUS,
-                ];
+                let r = self.layout.stick_radius();
+                let mut v = [(at[0] - origin[0]) / r, (origin[1] - at[1]) / r];
                 let len = (v[0] * v[0] + v[1] * v[1]).sqrt();
                 if len > 1.0 {
                     v = [v[0] / len, v[1] / len];
@@ -339,13 +397,24 @@ impl TouchControls {
     /// This frame's controls; the turn, taps and slot changes since the last are taken.
     pub fn frame(&mut self, now: Instant) -> TouchFrame {
         let mut pad = PadState::default();
+        let mut sneak_held = false;
+        let descend = self.descend;
+        let mut press = |button: TouchButton, pad: &mut PadState| {
+            if descend && button == TouchButton::Sneak {
+                sneak_held = true;
+            } else {
+                button.press(pad);
+            }
+        };
         for button in std::mem::take(&mut self.quick) {
-            button.press(&mut pad);
+            press(button, &mut pad);
         }
         for role in self.fingers.values_mut() {
             match role {
+                // Pause presses when lifted (`end`).
+                Role::Button(TouchButton::Pause, _) => {}
                 Role::Button(button, seen) => {
-                    button.press(&mut pad);
+                    press(*button, &mut pad);
                     *seen = true;
                 }
                 Role::Look {
@@ -375,6 +444,13 @@ impl TouchControls {
                 Role::Joystick { .. } | Role::Ignored => {}
             }
         }
+        if let Some((_, since, fired)) = self.pause.as_mut()
+            && !*fired
+            && now.duration_since(*since) >= HOLD_FOR_DEBUG
+        {
+            *fired = true;
+            self.debug = true;
+        }
         if let Some((_, v)) = self.stick() {
             pad.left = v;
             let tilt = (v[0] * v[0] + v[1] * v[1]).sqrt();
@@ -388,6 +464,8 @@ impl TouchControls {
             tap: std::mem::take(&mut self.tap),
             hotbar: self.hotbar.take(),
             drop: std::mem::take(&mut self.drop),
+            sneak_held,
+            debug: std::mem::take(&mut self.debug),
         }
     }
 
@@ -396,6 +474,88 @@ impl TouchControls {
         self.fingers
             .values()
             .any(|r| matches!(r, Role::Hotbar { slot, .. } if *slot == n))
+    }
+}
+
+/// The touch controls' settings file, next to options.txt.
+pub const FILE: &str = "horizon-touch.txt";
+
+/// The player's touch control settings (Options › Controls › Touch Controls).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TouchSettings {
+    /// How far a drag turns the view, 1 being a screen pixel for a mouse pixel.
+    pub look_sensitivity: f32,
+    /// The buttons' opacity, 1 being Bedrock's.
+    pub opacity: f32,
+    /// The buttons' size, 1 being Bedrock's.
+    pub button_scale: f32,
+    /// A tap of the haptic engine when a block breaks or the player is hurt.
+    pub haptics: bool,
+}
+
+impl Default for TouchSettings {
+    fn default() -> Self {
+        Self {
+            look_sensitivity: 1.0,
+            opacity: 1.0,
+            button_scale: 1.0,
+            haptics: true,
+        }
+    }
+}
+
+impl TouchSettings {
+    pub const LOOK: (f32, f32) = (0.25, 3.0);
+    pub const OPACITY: (f32, f32) = (0.25, 1.5);
+    pub const SCALE: (f32, f32) = (0.75, 1.5);
+
+    pub fn load(dir: &std::path::Path) -> Self {
+        std::fs::read_to_string(dir.join(FILE))
+            .map(|t| Self::parse(&t))
+            .unwrap_or_default()
+    }
+    /// Written once something differs from the defaults.
+    pub fn save(&self, dir: &std::path::Path) {
+        let path = dir.join(FILE);
+        if *self != Self::default() || path.exists() {
+            let _ = std::fs::write(path, self.serialize());
+        }
+    }
+    pub fn parse(text: &str) -> Self {
+        let mut s = Self::default();
+        for line in text.lines() {
+            let Some((key, value)) = line.split_once(':') else {
+                continue;
+            };
+            let value = value.trim();
+            let number = |d: f32, (lo, hi): (f32, f32)| {
+                value
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|v| v.is_finite())
+                    .map_or(d, |v| v.clamp(lo, hi))
+            };
+            match key.trim() {
+                "lookSensitivity" => s.look_sensitivity = number(s.look_sensitivity, Self::LOOK),
+                "opacity" => s.opacity = number(s.opacity, Self::OPACITY),
+                "buttonScale" => s.button_scale = number(s.button_scale, Self::SCALE),
+                "haptics" => {
+                    s.haptics = match value {
+                        "true" => true,
+                        "false" => false,
+                        _ => s.haptics,
+                    }
+                }
+                _ => {}
+            }
+        }
+        s
+    }
+    pub fn serialize(&self) -> String {
+        format!(
+            "lookSensitivity:{}\nopacity:{}\nbuttonScale:{}\nhaptics:{}\n",
+            self.look_sensitivity, self.opacity, self.button_scale, self.haptics
+        )
     }
 }
 
@@ -617,6 +777,76 @@ mod tests {
         assert!(m.start(2, [200.0, 50.0], t0).is_empty());
         assert!(m.end(2, [200.0, 50.0]).is_empty());
         assert!(m.owns(1));
+    }
+
+    #[test]
+    fn pause_on_lift_and_debug_on_hold() {
+        let t0 = Instant::now();
+        let mut c = controls();
+        let pause = centre(c.layout.button(TouchButton::Pause));
+        c.start(1, pause, t0);
+        assert!(!c.frame(t0).pad.held(Button::Start), "nothing while held");
+        c.end(1, pause, t0 + Duration::from_millis(100));
+        assert!(c.frame(t0).pad.held(Button::Start), "a tap pauses when lifted");
+        c.start(2, pause, t0);
+        let f = c.frame(t0 + HOLD_FOR_DEBUG);
+        assert!(f.debug && !f.pad.held(Button::Start));
+        assert!(!c.frame(t0 + HOLD_FOR_DEBUG * 2).debug, "once per hold");
+        c.end(2, pause, t0 + HOLD_FOR_DEBUG * 2);
+        assert!(!c.frame(t0).pad.held(Button::Start), "a hold doesn't pause");
+    }
+
+    #[test]
+    fn touch_settings_round_trip_and_clamp() {
+        let s = TouchSettings {
+            look_sensitivity: 2.0,
+            opacity: 0.5,
+            button_scale: 1.25,
+            haptics: false,
+        };
+        assert_eq!(TouchSettings::parse(&s.serialize()), s);
+        let wild = TouchSettings::parse("lookSensitivity:99
+opacity:x
+buttonScale:0.1
+");
+        assert_eq!(wild.look_sensitivity, 3.0);
+        assert_eq!(wild.opacity, 1.0);
+        assert_eq!(wild.button_scale, 0.75);
+    }
+
+    #[test]
+    fn sneak_descends_while_held_when_flying() {
+        let now = Instant::now();
+        let mut c = controls();
+        let sneak = centre(c.layout.button(TouchButton::Sneak));
+        c.descend = true;
+        c.start(1, sneak, now);
+        let f = c.frame(now);
+        assert!(f.sneak_held && !f.pad.held(Button::RightStick));
+        c.end(1, sneak, now);
+        assert!(!c.frame(now).sneak_held);
+        c.descend = false;
+        c.start(2, sneak, now);
+        let f = c.frame(now);
+        assert!(!f.sneak_held && f.pad.held(Button::RightStick));
+    }
+
+    #[test]
+    fn layouts_fit_with_insets_and_sizes() {
+        for scale in [0.75, 1.0, 1.5] {
+            for (w, h) in [(633.0, 293.0), (512.0, 384.0), (427.0, 240.0)] {
+                let l = TouchLayout::with(w, h, [36.0, 0.0, 36.0], scale);
+                let mut rects: Vec<Rect> = TouchButton::ALL.iter().map(|&b| l.button(b)).collect();
+                rects.extend((0..9).map(|n| l.hotbar_slot(n)));
+                for (i, a) in rects.iter().enumerate() {
+                    assert!(a.x >= 0.0 && a.y >= 0.0 && a.x + a.w <= w && a.y + a.h <= h, "{a:?} off a {w}x{h} screen at {scale}");
+                    for b in &rects[i + 1..] {
+                        let apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+                        assert!(apart, "{a:?} overlaps {b:?} on {w}x{h} at {scale}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

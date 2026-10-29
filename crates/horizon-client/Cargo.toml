@@ -69,6 +69,10 @@ unicode-bidi = "0.3.18"
 # The server thread's CPU time per tick (`HORIZON_SPIKES`, spans.rs).
 rustix = { version = "1", default-features = false, features = ["std", "time"] }
 
+[target.'cfg(target_os = "ios")'.dependencies]
+# Links, the pasteboard, haptics, alerts and game controllers through UIKit (the unsafe calls).
+horizon-ios = { path = "../horizon-ios" }
+
 [target.'cfg(windows)'.dependencies]
 # Use the registered URI handler without routing links through Explorer/cmd.
 open = { version = "5.4.5", features = ["shellexecute-on-windows"] }

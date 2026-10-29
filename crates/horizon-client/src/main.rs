@@ -51,6 +51,7 @@ fn main() {
 /// own prepared resources go.
 #[cfg(target_os = "ios")]
 fn ios_home(home: &std::path::Path) {
+    horizon_client::clipboard::set_ios_pasteboard(horizon_ios::copy_text, horizon_ios::pasted_text);
     let _ = std::fs::create_dir_all(home);
     if let Err(error) = std::env::set_current_dir(home) {
         eprintln!("Horizon: can't enter {}: {error}", home.display());
