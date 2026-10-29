@@ -21,6 +21,8 @@ fn main() {
     } else {
         (logging::game_home(), "client", "Render thread")
     };
+    #[cfg(target_os = "ios")]
+    ios_home(&home);
     if !help {
         logging::init(&home, thread);
         // The log's first line names the build, so a bug report that carries the log says which one it was.
@@ -42,4 +44,26 @@ fn main() {
         std::process::exit(1);
     }
     logging::flush();
+}
+
+/// iOS starts the app in `/`, and no launcher sets the working directory the game reads its
+/// options, saves and caches from: run in the game home (Documents) and say where the player's
+/// own prepared resources go.
+#[cfg(target_os = "ios")]
+fn ios_home(home: &std::path::Path) {
+    let _ = std::fs::create_dir_all(home);
+    if let Err(error) = std::env::set_current_dir(home) {
+        eprintln!("Horizon: can't enter {}: {error}", home.display());
+    }
+    let note = home.join("PUT RESOURCES HERE.txt");
+    if home.join("resources/horizon-resources.json").exists() {
+        let _ = std::fs::remove_file(note);
+    } else {
+        let _ = std::fs::write(
+            note,
+            "Copy the prepared resources folder from your computer here and name it \"resources\".\n\
+             On Windows it is %APPDATA%\\horizon-launcher\\versions\\<version>\\.local\\horizon-client\\26.3\n\
+             (it holds horizon-resources.json). Then start Horizon again.\n",
+        );
+    }
 }

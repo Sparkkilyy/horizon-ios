@@ -85,6 +85,10 @@ const MODEL_PARTS: [&str; 7] = [
     "right_pants_leg",
     "hat",
 ];
+/// Vanilla's 12 and 12. On iOS 6 and 5: the system ends an app that takes much more than about
+/// 2 GB, and a phone's GPU and battery go further with fewer chunks.
+pub const DEFAULT_RENDER_DISTANCE: i32 = if cfg!(target_os = "ios") { 6 } else { 12 };
+pub const DEFAULT_SIMULATION_DISTANCE: i32 = if cfg!(target_os = "ios") { 5 } else { 12 };
 const GRAPHICS_BACKEND: &[&str] = &["default", "opengl", "vulkan"];
 const GRAPHICS_PRESET: &[&str] = &["fast", "fancy", "fabulous", "custom"];
 const INACTIVITY: &[&str] = &["minimized", "afk"];
@@ -159,8 +163,8 @@ static TABLE: LazyLock<Vec<Def>> = LazyLock::new(|| {
         b("reducedDebugInfo", false),
         def("renderClouds", O(Clouds), V::Int(2)),
         i("cloudRange", 2, 128, 128),
-        i("renderDistance", 2, 64, 12),
-        i("simulationDistance", 5, 32, 12),
+        i("renderDistance", 2, 64, DEFAULT_RENDER_DISTANCE),
+        i("simulationDistance", 5, 32, DEFAULT_SIMULATION_DISTANCE),
         u("screenEffectScale", 1.0),
         def("soundDevice", O(AnyStr), V::Str(String::new())),
         b("vignette", true),

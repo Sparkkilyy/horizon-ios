@@ -352,6 +352,9 @@ impl Options {
         let mut o = Self {
             resources: if sibling.join("horizon-resources.json").exists() {
                 sibling
+            } else if cfg!(target_os = "ios") {
+                // Copied by the player into the app's Documents, the working directory (main.rs).
+                std::path::PathBuf::from("resources")
             } else {
                 std::path::Path::new(".local/horizon-client").join(horizon_core::VANILLA_VERSION)
             },
@@ -15462,14 +15465,35 @@ enum App {
     Loading(Box<Loading>),
     Ready(Box<Game<'static>>),
 }
+/// The app is in the background (iOS): iOS ends an app that draws there, so no frames are drawn
+/// until it is back.
+static BACKGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 impl ApplicationHandler for App {
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        log::info!("Horizon: suspended");
+        BACKGROUND.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        BACKGROUND.store(false, std::sync::atomic::Ordering::Relaxed);
         match self {
             App::Loading(loading) => loading.resumed(event_loop),
             App::Ready(game) => game.resumed(event_loop),
         }
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if matches!(event, WindowEvent::RedrawRequested)
+            && BACKGROUND.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        }
+        #[cfg(target_os = "ios")]
+        if let WindowEvent::Touch(touch) = event {
+            for event in touch_as_mouse(touch) {
+                self.window_event(event_loop, id, event);
+            }
+            return;
+        }
         match self {
             App::Loading(loading) => loading.window_event(event_loop, id, event),
             App::Ready(game) => game.window_event(event_loop, id, event),
@@ -15481,6 +15505,8 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "ios")]
+        self.stop_on_error();
         enum Step {
             Waiting,
             Ready(Box<Game<'static>>),
@@ -15522,12 +15548,67 @@ impl ApplicationHandler for App {
                     loading.error = Some(e);
                 }
                 event_loop.exit();
+                #[cfg(target_os = "ios")]
+                self.stop_on_error();
             }
         }
     }
     fn exiting(&mut self, event_loop: &ActiveEventLoop) {
         if let App::Ready(game) = self {
             game.exiting(event_loop);
+        }
+    }
+}
+
+/// The finger that acts as the mouse (iOS), `u64::MAX` for none.
+#[cfg(target_os = "ios")]
+static MOUSE_FINGER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// Until there are touch controls, the first finger down is the mouse: it moves the cursor and
+/// holds the left button, so every menu can be tapped.
+#[cfg(target_os = "ios")]
+fn touch_as_mouse(touch: winit::event::Touch) -> Vec<WindowEvent> {
+    use std::sync::atomic::Ordering::Relaxed;
+    use winit::event::{ElementState, MouseButton, TouchPhase};
+    let moved = WindowEvent::CursorMoved {
+        device_id: touch.device_id,
+        position: touch.location,
+    };
+    let button = |state| WindowEvent::MouseInput {
+        device_id: touch.device_id,
+        state,
+        button: MouseButton::Left,
+    };
+    let finger = MOUSE_FINGER.load(Relaxed);
+    match touch.phase {
+        TouchPhase::Started if finger == u64::MAX => {
+            MOUSE_FINGER.store(touch.id, Relaxed);
+            vec![moved, button(ElementState::Pressed)]
+        }
+        TouchPhase::Moved if finger == touch.id => vec![moved],
+        TouchPhase::Ended | TouchPhase::Cancelled if finger == touch.id => {
+            MOUSE_FINGER.store(u64::MAX, Relaxed);
+            vec![moved, button(ElementState::Released)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(target_os = "ios")]
+impl App {
+    /// iOS ignores `event_loop.exit()` and `run_app` never returns, so the error `run` would
+    /// return is reported here (main.rs's crash report and log flush), and the app ends.
+    fn stop_on_error(&mut self) {
+        let error = match self {
+            App::Loading(loading) => loading.error.take(),
+            App::Ready(game) => game.error.take(),
+        };
+        if let Some(error) = error {
+            use horizon_client::{crash, logging};
+            log::error!("Horizon: {error}");
+            crash::report_error(&logging::game_home(), "client", &*error);
+            logging::flush();
+            std::process::exit(1);
         }
     }
 }

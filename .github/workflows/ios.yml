@@ -1,0 +1,111 @@
+# The iOS app (fork-only, not upstream): builds an unsigned Horizon.ipa for sideloading and
+# publishes it to the `ios-latest` prerelease with an AltStore-format source for Feather.
+# The app holds no game files: the player copies their own prepared resources into its Documents.
+name: ios
+
+on:
+  push:
+    branches: [ios]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      # winit 0.30 has no UIScene support, and iOS 27 refuses to launch scene-less apps built
+      # against the iOS 27 SDK: link against the newest Xcode 26 SDK instead.
+      - name: Select Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$xcode" ]; then sudo xcode-select -s "$xcode"; fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ios
+
+      - name: Build
+        run: >
+          cargo build --profile fast --locked --target aarch64-apple-ios
+          -p horizon-client --bin horizon-client --no-default-features --features audio
+
+      - name: Bundle
+        run: |
+          app=Payload/Horizon.app
+          mkdir -p "$app"
+          cp target/aarch64-apple-ios/fast/horizon-client "$app/"
+          sed "s/@BUILD@/${{ github.run_number }}/g" packaging/ios/Info.plist > "$app/Info.plist"
+          plutil -lint "$app/Info.plist"
+          printf 'APPL????' > "$app/PkgInfo"
+          icon=docs/media/brand/icon-1024.png
+          for spec in 60x60@2x:120 60x60@3x:180 76x76@2x:152 83.5x83.5@2x:167; do
+            sips -z "${spec#*:}" "${spec#*:}" "$icon" --out "$app/AppIcon${spec%:*}.png" >/dev/null
+          done
+          codesign --force --sign - "$app"
+          zip -qry Horizon.ipa Payload
+          ls -l Horizon.ipa
+
+      - name: Source for Feather
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          size=$(stat -f%z Horizon.ipa)
+          version="0.1.${{ github.run_number }}"
+          url="https://github.com/$REPO/releases/download/ios-latest/Horizon.ipa"
+          date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > feather-source.json <<EOF
+          {
+            "name": "Horizon for iOS",
+            "identifier": "com.sparkkilyy.horizon.source",
+            "apps": [{
+              "name": "Horizon",
+              "bundleIdentifier": "com.sparkkilyy.horizon",
+              "developerName": "Sparkkilyy",
+              "localizedDescription": "Horizon (Minecraft Java Edition in Rust) for iOS. Copy your own prepared resources into its Documents folder.",
+              "iconURL": "https://raw.githubusercontent.com/$REPO/${{ github.sha }}/docs/media/brand/icon-1024.png",
+              "version": "$version",
+              "versionDate": "$date",
+              "downloadURL": "$url",
+              "size": $size,
+              "versions": [{ "version": "$version", "date": "$date", "downloadURL": "$url", "size": $size }]
+            }],
+            "news": []
+          }
+          EOF
+          python3 -m json.tool feather-source.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Horizon-ipa
+          path: Horizon.ipa
+
+      - name: Publish ios-latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Build ${{ github.run_number }} from ${{ github.sha }}. Install Horizon.ipa with Feather, or add this source URL: https://github.com/${{ github.repository }}/releases/download/ios-latest/feather-source.json"
+          if ! gh release view ios-latest >/dev/null 2>&1; then
+            gh release create ios-latest --prerelease --target "${{ github.sha }}" --title "Horizon for iOS (latest)" --notes "$notes"
+          else
+            gh release edit ios-latest --notes "$notes"
+          fi
+          gh release upload ios-latest Horizon.ipa feather-source.json --clobber
