@@ -30,8 +30,18 @@ pub fn packs_dir() -> PathBuf {
         .unwrap_or_default()
         .join("resourcepacks")
 }
-/// `Util.getPlatform().openPath`: the system file manager on the folder.
+/// `Util.getPlatform().openPath`: the system file manager on the folder (the Files app on iOS,
+/// where the game's folders are in On My iPhone › Horizon).
 pub fn open_folder(dir: &Path) {
+    #[cfg(target_os = "ios")]
+    {
+        let _ = std::fs::create_dir_all(dir);
+        if !horizon_ios::open_folder(dir) {
+            log::warn!("Horizon: could not open {}", dir.display());
+        }
+        return;
+    }
+    #[allow(unreachable_code)]
     let program = if cfg!(target_os = "windows") {
         "explorer"
     } else if cfg!(target_os = "macos") {
@@ -52,7 +62,11 @@ pub fn open_uri(uri: &str) {
     if let Err(error) = open::that_detached(uri) {
         log::warn!("Horizon: could not open URI {uri}: {error}");
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "ios")]
+    if !horizon_ios::open_url(uri) {
+        log::warn!("Horizon: could not open URI {uri}");
+    }
+    #[cfg(not(any(windows, target_os = "ios")))]
     open_folder(Path::new(uri));
 }
 /// The resource root to load from, given the vanilla root, the selection and

@@ -597,7 +597,7 @@ impl Game<'_> {
     }
     /// The edit screen's Done: a server's client sends the packet, the
     /// window's own world applies it (`handleSetCommandBlock`).
-    fn set_command_block(&mut self, s: &CommandBlockScreen) {
+    pub(super) fn set_command_block(&mut self, s: &CommandBlockScreen) {
         if !self.can_use_game_master_blocks() {
             self.system_message(Text::translate("advMode.notAllowed", &[]));
             return;

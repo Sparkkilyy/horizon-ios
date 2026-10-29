@@ -1345,6 +1345,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "horizon-account"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "horizon-assets"
 version = "0.1.0"
 dependencies = [
@@ -1382,6 +1391,7 @@ dependencies = [
  "flate2",
  "gilrs",
  "glam",
+ "horizon-account",
  "horizon-assets",
  "horizon-bench",
  "horizon-client-core",
@@ -1391,6 +1401,7 @@ dependencies = [
  "horizon-dualsense",
  "horizon-friends",
  "horizon-hdr",
+ "horizon-ios",
  "horizon-items",
  "horizon-mods",
  "horizon-protocol",
@@ -1487,6 +1498,18 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "wgpu",
+]
+
+[[package]]
+name = "horizon-ios"
+version = "0.1.0"
+dependencies = [
+ "block2 0.5.1",
+ "horizon-client-input",
+ "objc2 0.5.3",
+ "objc2-foundation 0.2.2",
+ "objc2-game-controller",
+ "objc2-ui-kit",
 ]
 
 [[package]]
@@ -2551,6 +2574,19 @@ dependencies = [
  "bitflags 2.13.2",
  "objc2 0.6.5",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-game-controller"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e04403ce18c0bc50a440c5af2d5df141ddf79a737f1acd8dcd77a0795ae30096"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2 0.5.1",
+ "objc2 0.5.3",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
 ]
 
 [[package]]
@@ -3893,6 +3929,8 @@ dependencies = [
  "once_cell",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "url",
  "webpki-roots 0.26.11",
 ]

@@ -98,6 +98,43 @@ pub fn helper_clipboard_contents(clipboard: &str) -> String {
     strip_formatting(&clipboard.replace('\r', ""))
 }
 
+/// The system pasteboard on iOS, which the game hands in at start (`set_ios_pasteboard`; the
+/// UIKit calls are in horizon-ios). Until then, text copied in the game is pasted in the game.
+#[cfg(target_os = "ios")]
+static IOS_PASTEBOARD: std::sync::OnceLock<(fn(&str), fn() -> Option<String>)> =
+    std::sync::OnceLock::new();
+
+/// The iOS pasteboard's copy and paste.
+#[cfg(target_os = "ios")]
+pub fn set_ios_pasteboard(copy: fn(&str), paste: fn() -> Option<String>) {
+    let _ = IOS_PASTEBOARD.set((copy, paste));
+}
+
+/// arboard's interface over the iOS pasteboard.
+#[cfg(target_os = "ios")]
+mod arboard {
+    pub struct Clipboard(fn(&str), fn() -> Option<String>);
+    pub enum Error {
+        ContentNotAvailable,
+        Unavailable,
+    }
+    impl Clipboard {
+        pub fn new() -> Result<Self, Error> {
+            super::IOS_PASTEBOARD
+                .get()
+                .map(|&(copy, paste)| Clipboard(copy, paste))
+                .ok_or(Error::Unavailable)
+        }
+        pub fn get_text(&mut self) -> Result<String, Error> {
+            (self.1)().ok_or(Error::ContentNotAvailable)
+        }
+        pub fn set_text(&mut self, text: String) -> Result<(), Error> {
+            (self.0)(&text);
+            Ok(())
+        }
+    }
+}
+
 /// A clipboard: the system's, or an in-memory one in tests.
 pub trait Clipboard {
     /// `KeyboardHandler.getClipboard`: empty when there is no text.

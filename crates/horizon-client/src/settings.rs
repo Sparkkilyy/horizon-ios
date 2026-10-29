@@ -177,6 +177,8 @@ pub struct Settings {
     pub horizon: crate::graphics::Graphics,
     /// Controller settings (`horizon-controller.txt`, Horizon's own).
     pub controller: crate::gamepad::PadSettings,
+    /// Touch control settings (`horizon-touch.txt`, Horizon's own; iOS).
+    pub touch: crate::touch::TouchSettings,
     /// Horizon's optional extras (`horizon-extras.txt`), all off by default.
     pub extras: crate::extras::Extras,
     /// The Horizon mods turned on (`horizon-mods.txt`), all off by default.
@@ -189,8 +191,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             fov: 70.0,
-            render_distance: 12,
-            simulation_distance: 12,
+            render_distance: crate::options_file::DEFAULT_RENDER_DISTANCE,
+            simulation_distance: crate::options_file::DEFAULT_SIMULATION_DISTANCE,
             sensitivity: 0.5,
             master_volume: 1.0,
             volumes: [1.0; 11],
@@ -199,7 +201,7 @@ impl Default for Settings {
             gamma: 0.5,
             // Vanilla's default, as for an options.txt without the key: a
             // capped frame rate leaves the cores idle when VSync is off.
-            max_fps: 120,
+            max_fps: crate::options_file::DEFAULT_MAX_FPS as u32,
             vsync: true,
             fullscreen: false,
             smooth_lighting: true,
@@ -227,7 +229,7 @@ impl Default for Settings {
             allow_cursor_changes: true,
             toggle_crouch: false,
             toggle_sprint: false,
-            auto_jump: false,
+            auto_jump: crate::options_file::DEFAULT_AUTO_JUMP,
             language: "en_us".into(),
             force_unicode: false,
             japanese_glyphs: false,
@@ -257,6 +259,7 @@ impl Default for Settings {
             sprint_window: 7,
             horizon: Default::default(),
             controller: Default::default(),
+            touch: Default::default(),
             extras: Default::default(),
             mods: Default::default(),
             shader_packs: Vec::new(),
@@ -298,6 +301,10 @@ impl Settings {
             .parent()
             .map(crate::gamepad::PadSettings::load)
             .unwrap_or_default();
+        let touch = path
+            .parent()
+            .map(crate::touch::TouchSettings::load)
+            .unwrap_or_default();
         let extras = path
             .parent()
             .map(crate::extras::Extras::load)
@@ -310,6 +317,7 @@ impl Settings {
             Ok(bytes) => Self {
                 horizon,
                 controller,
+                touch,
                 extras,
                 mods,
                 ..Self::parse(&String::from_utf8_lossy(&bytes))
@@ -317,6 +325,7 @@ impl Settings {
             Err(_) => Self {
                 horizon,
                 controller,
+                touch,
                 extras,
                 mods,
                 ..Self::default()
@@ -419,6 +428,7 @@ impl Settings {
             sprint_window: f.int("sprintWindow"),
             horizon: Default::default(),
             controller: Default::default(),
+            touch: Default::default(),
             extras: Default::default(),
             mods: Default::default(),
             shader_packs: Vec::new(),
@@ -558,6 +568,7 @@ impl Settings {
         Ok(Self {
             horizon: self.horizon.clone(),
             controller: self.controller.clone(),
+            touch: self.touch,
             extras: self.extras.clone(),
             mods: self.mods.clone(),
             ..Self::from_file(file)
@@ -573,6 +584,7 @@ impl Settings {
         if let Some(dir) = path.parent() {
             self.horizon.save(dir);
             self.controller.save(dir);
+            self.touch.save(dir);
             self.extras.save(dir);
             self.mods.save(dir);
         }
@@ -706,6 +718,11 @@ pub enum Opt {
     PadGlyphs,
     PadMenuNav,
     PadKeyboard,
+    /// Horizon's touch control settings (`horizon-touch.txt`, iOS).
+    TouchLookSensitivity,
+    TouchOpacity,
+    TouchButtonScale,
+    TouchHaptics,
 }
 
 #[cfg(test)]

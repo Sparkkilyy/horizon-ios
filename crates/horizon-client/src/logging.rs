@@ -33,7 +33,7 @@ pub fn data_dir() -> PathBuf {
         if let Some(d) = env("APPDATA") {
             return d;
         }
-    } else if cfg!(target_os = "macos") {
+    } else if cfg!(target_vendor = "apple") {
         if let Some(h) = &home {
             return h.join("Library/Application Support");
         }
@@ -46,10 +46,15 @@ pub fn data_dir() -> PathBuf {
 }
 
 /// Where the launcher runs the game and keeps its saves: `HORIZON_HOME`, else `horizon` in the
-/// platform data folder (launcher/src/backend.rs `game_home`).
+/// platform data folder (launcher/src/backend.rs `game_home`). On iOS, with no launcher, the app's
+/// Documents folder: the Files app shows it, so the player copies the resources in and their
+/// saves, logs and crash reports out.
 pub fn game_home() -> PathBuf {
     match std::env::var_os("HORIZON_HOME").filter(|h| !h.is_empty()) {
         Some(h) => PathBuf::from(h),
+        None if cfg!(target_os = "ios") => std::env::var_os("HOME")
+            .map_or_else(std::env::temp_dir, PathBuf::from)
+            .join("Documents"),
         None => data_dir().join("horizon"),
     }
 }

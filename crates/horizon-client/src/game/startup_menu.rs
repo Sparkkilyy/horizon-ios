@@ -367,6 +367,8 @@ impl Loading {
                     let _ = std::fs::create_dir_all(&dir);
                     packs::open_folder(&dir);
                 }
+                // The account screen needs the game: its options open once it has loaded.
+                Event::Account => {}
                 Event::ListShaderPacks => {
                     self.settings.shader_packs =
                         horizon_client::shader_pack_list::scan(&Game::shader_packs_dir());

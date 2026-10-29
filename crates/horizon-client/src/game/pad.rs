@@ -30,6 +30,37 @@ pub(super) struct Pads {
     devices: hardware::Devices,
     /// The virtual pad of `horizon-ctl pad`.
     injected: PadState,
+    /// The touch controls (iOS), another virtual pad (game/touch.rs).
+    #[cfg(target_os = "ios")]
+    pub(super) touch: horizon_client::touch::TouchControls,
+    /// The first finger in a menu, as the mouse (game/touch.rs).
+    #[cfg(target_os = "ios")]
+    pub(super) menu_touch: horizon_client::touch::MenuTouch,
+    /// A finger on the close or Shift button, ignored until lifted.
+    #[cfg(target_os = "ios")]
+    pub(super) menu_ignored: Option<u64>,
+    /// The touch screen, for the mouse events its fingers make.
+    #[cfg(target_os = "ios")]
+    pub(super) touch_device: Option<winit::event::DeviceId>,
+    /// The Shift toggle over inventories: taps quick-move.
+    #[cfg(target_os = "ios")]
+    pub(super) touch_shift: bool,
+    /// The Shift keys the toggle added for a press, removed at its release.
+    #[cfg(target_os = "ios")]
+    pub(super) shift_added: (bool, bool),
+    /// The system keyboard was asked to show.
+    #[cfg(target_os = "ios")]
+    pub(super) keyboard_shown: bool,
+    /// Sneak held down by the touch Sneak button while flying or swimming.
+    #[cfg(target_os = "ios")]
+    pub(super) touch_sneak: bool,
+    /// The Microsoft account screen (game/account.rs).
+    #[cfg(target_os = "ios")]
+    pub(super) account: Option<super::account::AccountScreen>,
+    /// The player hid the keyboard (its button, or Return) while a field kept focus: it stays
+    /// hidden until their next tap.
+    #[cfg(target_os = "ios")]
+    pub(super) keyboard_dismissed: bool,
     /// The virtual pad was in use at the last poll.
     virtual_input: bool,
     /// Buttons a `pad ... tap` releases at the next poll.
@@ -65,7 +96,13 @@ mod hardware {
     use serde_json::{Value, json};
 
     impl Pads {
+        /// On iOS, a Bluetooth or MFi controller through GameController (horizon-ios).
         pub(super) fn read(&mut self) -> PadState {
+            #[cfg(target_os = "ios")]
+            if let Some((state, style)) = horizon_ios::controller() {
+                self.style = style;
+                return state;
+            }
             PadState::default()
         }
     }
@@ -93,7 +130,8 @@ impl Game<'_> {
     /// Once per loop iteration: read the pads and act on button changes.
     pub(super) fn poll_pads(&mut self, event_loop: &ActiveEventLoop) {
         let settings = &self.settings.controller;
-        if !settings.enabled {
+        // The touch controls are no controller the setting turns off.
+        if !settings.enabled && !cfg!(target_os = "ios") {
             self.pad_output_off();
             if self.pad.state != PadState::default() {
                 self.pad.state = PadState::default();
@@ -105,8 +143,14 @@ impl Game<'_> {
         }
         let hardware = self.pad.read();
         self.ui.options.pad_style = self.settings.controller.glyphs.resolve(self.pad.style);
-        let state = hardware.merge(&self.pad.injected);
-        self.pad.virtual_input = self.pad.injected != PadState::default();
+        let pads = hardware.merge(&self.pad.injected);
+        #[cfg(target_os = "ios")]
+        let touch = self.touch_frame();
+        #[cfg(not(target_os = "ios"))]
+        let touch = PadState::default();
+        let state = pads.merge(&touch);
+        self.pad.virtual_input =
+            self.pad.injected != PadState::default() || touch != PadState::default();
         for button in std::mem::take(&mut self.pad.taps) {
             self.pad.injected.set(button, false);
         }
@@ -114,6 +158,10 @@ impl Game<'_> {
         let edges = self.pad.edges.update(&state, threshold);
         if state.active(&self.settings.controller) {
             self.last_input = Instant::now();
+        }
+        // Touches are no controller in menus: they tap as the mouse, without the focus ring or the
+        // on-screen keyboard a pad brings.
+        if pads.active(&self.settings.controller) {
             self.pad.in_use = true;
         }
         self.pad.state = state;
@@ -180,7 +228,7 @@ impl Game<'_> {
             return Ok(());
         }
         let playing = !self.pad_in_menu();
-        if down && playing && !self.captured && self.focused {
+        if down && playing && !self.captured && self.focused && !cfg!(target_os = "ios") {
             // Like a click into the window: take the pointer.
             self.capture(true);
         }
@@ -299,6 +347,16 @@ impl Game<'_> {
     /// Vibrate the active pad, when vibration is on and the pad is the one
     /// playing (a pad lying idle while the mouse plays stays still).
     pub(super) fn pad_rumble(&mut self, rumble: Rumble) {
+        // Playing by touch: the phone's own haptics (Options › Controls › Touch Controls).
+        #[cfg(target_os = "ios")]
+        if !self.pad.in_use {
+            if self.settings.touch.haptics
+                && let Some(pulse) = rumble.pulse()
+            {
+                horizon_ios::haptic(pulse.strong.max(pulse.weak));
+            }
+            return;
+        }
         let settings = &self.settings.controller;
         if !settings.enabled || !settings.vibration || !self.pad.in_use {
             return;

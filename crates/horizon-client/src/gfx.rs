@@ -783,10 +783,10 @@ fn instance_descriptor(backends: wgpu::Backends) -> wgpu::InstanceDescriptor {
 /// then OpenGL (Windows and Linux) for GPUs with neither driver, each when the one
 /// before has no surface, adapter or device. A native crash in the driver can't be
 /// caught in the game; the launcher switches the setting to DirectX 12 after one at
-/// the renderer's start (#746). macOS has Metal only.
+/// the renderer's start (#746). macOS and iOS have Metal only.
 fn backend_order(api: GraphicsApi, os: &str, wgpu_backend: bool) -> Vec<wgpu::Backends> {
     use wgpu::Backends;
-    if os == "macos" || wgpu_backend {
+    if os == "macos" || os == "ios" || wgpu_backend {
         return vec![Backends::default()];
     }
     let windows = os == "windows";
@@ -954,12 +954,12 @@ async fn open_device(
             required_limits: limits,
             ..Default::default()
         };
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(target_vendor = "apple"))]
         let opened = match info.backend {
             wgpu::Backend::Vulkan => horizon_hdr::open_vulkan_device(&adapter, &desc),
             _ => None,
         };
-        #[cfg(target_os = "macos")]
+        #[cfg(target_vendor = "apple")]
         let opened = None;
         let opened = match opened {
             Some(opened) => opened,
@@ -980,6 +980,17 @@ async fn open_device(
     }
     Err(format!("{NO_GPU_DRIVER} ({})", failures.join("; ")).into())
 }
+/// The window's size in pixels, which the surface covers. On iOS `inner_size` is the safe area
+/// (the screen less the notch and the home indicator), but the view, its Metal layer and the
+/// touches' positions cover the whole screen: a surface the safe area's size was stretched over
+/// it, and taps landed further right and lower than they showed.
+pub fn window_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
+    if cfg!(target_os = "ios") {
+        window.outer_size()
+    } else {
+        window.inner_size()
+    }
+}
 /// What to tell a player whose system offers no usable graphics adapter.
 /// Vulkan is loaded at run time (the game links no graphics library), so a
 /// missing driver shows here rather than as a missing-DLL dialog.
@@ -987,9 +998,9 @@ async fn open_device(
 const NO_GPU_DRIVER: &str = "No graphics driver with Vulkan, DirectX 12 or OpenGL found: Horizon needs \
      a GPU driver with one of them. Install the latest driver for your NVIDIA, AMD or Intel GPU and \
      start the game again";
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 const NO_GPU_DRIVER: &str = "No Metal graphics device found";
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_vendor = "apple")))]
 const NO_GPU_DRIVER: &str = "No Vulkan or OpenGL graphics driver found: Horizon needs the Vulkan loader \
      (libvulkan.so.1) and a Vulkan driver for your GPU (Mesa's, or NVIDIA's), or OpenGL through EGL";
 /// Logs a step of the renderer's start, for a native crash in the graphics
@@ -1099,7 +1110,7 @@ impl Renderer {
         };
         let info = adapter.get_info();
         crate::graphics::suggest_reduced_far_detail(crate::graphics::lod_capped(&info));
-        let size = window.inner_size();
+        let size = window_size(&window);
         let (config, present_modes, hdr_output) = if let Some(surface) = &surface {
             let mut config = surface
                 .get_default_config(&adapter, size.width.max(1), size.height.max(1))
@@ -5554,10 +5565,11 @@ mod tests {
         );
         assert_eq!(order(GraphicsApi::Dx12, "linux"), [Backends::VULKAN]);
         assert_eq!(order(GraphicsApi::OpenGl, "linux"), [Backends::GL]);
-        // WGPU_BACKEND picks the backends itself; macOS has Metal only.
+        // WGPU_BACKEND picks the backends itself; macOS and iOS have Metal only.
         for api in GraphicsApi::ALL {
             assert_eq!(backend_order(api, "windows", true), [Backends::default()]);
             assert_eq!(order(api, "macos"), [Backends::default()]);
+            assert_eq!(order(api, "ios"), [Backends::default()]);
         }
     }
     /// Every WGSL shader file translates to HLSL as wgpu's DirectX 12 backend

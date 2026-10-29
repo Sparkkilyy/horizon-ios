@@ -93,6 +93,13 @@ pub fn backups_path(saves: &Path) -> PathBuf {
 pub(super) fn open_folder(path: &Path) -> crate::Result<()> {
     fs::create_dir_all(path)?;
     let path = fs::canonicalize(path)?;
+    // The Files app, where the game's folders are in On My iPhone › Horizon.
+    #[cfg(target_os = "ios")]
+    {
+        horizon_ios::open_folder(&path);
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
     let program = if cfg!(target_os = "windows") {
         "explorer"
     } else if cfg!(target_os = "macos") {

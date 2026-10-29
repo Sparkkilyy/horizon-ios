@@ -8,6 +8,7 @@ pub use crate::settings::Opt;
 
 use crate::{
     gamepad::{self, GlyphStyle},
+    touch::TouchSettings,
     hud::{HudAtlas, HudBatch, rgba},
     keybinds::{self, CATEGORIES, KeyBinds, MAPPINGS},
     lang::{self, LanguageInfo},
@@ -225,6 +226,10 @@ impl Opt {
             Opt::PadGlyphs => "horizon.options.button_glyphs",
             Opt::PadMenuNav => "horizon.options.menu_navigation",
             Opt::PadKeyboard => "horizon.options.on_screen_keyboard",
+            Opt::TouchLookSensitivity => "horizon.options.look_sensitivity",
+            Opt::TouchOpacity => "horizon.options.touch_opacity",
+            Opt::TouchButtonScale => "horizon.options.touch_button_size",
+            Opt::TouchHaptics => "horizon.options.touch_haptics",
         }
     }
     pub(crate) fn kind(self, s: &Settings) -> Kind {
@@ -269,6 +274,18 @@ impl Opt {
             Opt::PadLookSensitivity => Kind::Slider(s.controller.look_sensitivity),
             Opt::PadMoveDeadzone => unit(s.controller.move_deadzone, 0.0, 0.5),
             Opt::PadLookDeadzone => unit(s.controller.look_deadzone, 0.0, 0.5),
+            Opt::TouchLookSensitivity => {
+                let (lo, hi) = TouchSettings::LOOK;
+                unit(s.touch.look_sensitivity, lo, hi)
+            }
+            Opt::TouchOpacity => {
+                let (lo, hi) = TouchSettings::OPACITY;
+                unit(s.touch.opacity, lo, hi)
+            }
+            Opt::TouchButtonScale => {
+                let (lo, hi) = TouchSettings::SCALE;
+                unit(s.touch.button_scale, lo, hi)
+            }
             _ => Kind::Cycle,
         }
     }
@@ -431,6 +448,9 @@ impl Opt {
                 ),
             ),
             Opt::PadLookSensitivity => percent(c, 2.0 * s.controller.look_sensitivity),
+            Opt::TouchLookSensitivity => percent(c, s.touch.look_sensitivity),
+            Opt::TouchOpacity => percent(c, s.touch.opacity),
+            Opt::TouchButtonScale => percent(c, s.touch.button_scale),
             Opt::PadMoveDeadzone | Opt::PadLookDeadzone => {
                 let v = if self == Opt::PadMoveDeadzone {
                     s.controller.move_deadzone
@@ -536,6 +556,7 @@ impl Opt {
             Opt::JapaneseGlyphs => on_off(s.japanese_glyphs),
             Opt::PadEnabled => on_off(s.controller.enabled),
             Opt::PadVibration => on_off(s.controller.vibration),
+            Opt::TouchHaptics => on_off(s.touch.haptics),
             Opt::PadAdaptiveTriggers => on_off(s.controller.adaptive_triggers),
             Opt::PadInvertX => on_off(s.controller.invert_x),
             Opt::PadInvertY => on_off(s.controller.invert_y),
@@ -611,6 +632,20 @@ impl Opt {
             Opt::ChatHeightUnfocused => s.chat_height_unfocused = v,
             Opt::ChatLineSpacing => s.chat_line_spacing = v,
             Opt::PadLookSensitivity => s.controller.look_sensitivity = v,
+            // Steps of 5%.
+            Opt::TouchLookSensitivity | Opt::TouchOpacity | Opt::TouchButtonScale => {
+                let (lo, hi) = match self {
+                    Opt::TouchLookSensitivity => TouchSettings::LOOK,
+                    Opt::TouchOpacity => TouchSettings::OPACITY,
+                    _ => TouchSettings::SCALE,
+                };
+                let value = ((lo + v * (hi - lo)) * 20.0).round() / 20.0;
+                match self {
+                    Opt::TouchLookSensitivity => s.touch.look_sensitivity = value,
+                    Opt::TouchOpacity => s.touch.opacity = value,
+                    _ => s.touch.button_scale = value,
+                }
+            }
             Opt::PadMoveDeadzone => s.controller.move_deadzone = step(0.0, 50.0) / 100.0,
             Opt::PadLookDeadzone => s.controller.look_deadzone = step(0.0, 50.0) / 100.0,
             _ => {}
@@ -722,6 +757,7 @@ impl Opt {
             Opt::JapaneseGlyphs => s.japanese_glyphs = !s.japanese_glyphs,
             Opt::PadEnabled => s.controller.enabled = !s.controller.enabled,
             Opt::PadVibration => s.controller.vibration = !s.controller.vibration,
+            Opt::TouchHaptics => s.touch.haptics = !s.touch.haptics,
             Opt::PadAdaptiveTriggers => {
                 s.controller.adaptive_triggers = !s.controller.adaptive_triggers
             }
@@ -846,6 +882,8 @@ pub enum Page {
     GraphicsAdvanced,
     /// Horizon's controller settings and button binds.
     Controller,
+    /// The touch controls (iOS).
+    Touch,
     PadBinds,
     Extras,
     /// CreditsAndAttributionScreen.
@@ -881,6 +919,8 @@ enum Act {
     NativeKey(usize, usize),
     NativeButton(usize, usize),
     OpenModFolder,
+    /// The Microsoft account screen (iOS, where there is no launcher).
+    Account,
     /// Credits & Attribution's Credits button (WinScreen without the poem).
     Credits,
     CopyAgentDetails,
@@ -931,6 +971,8 @@ pub enum Event {
     Packs(Vec<String>),
     OpenPackFolder,
     OpenModFolder,
+    /// Open the Microsoft account screen (iOS).
+    Account,
     /// The Shader Packs page opened: list `shaderpacks/` into `shader_packs`.
     ListShaderPacks,
     /// A shader pack was picked or turned off: save and apply it.
@@ -1084,6 +1126,7 @@ fn horizon_page_tooltip(page: Page) -> Option<&'static str> {
             "Every graphics setting, Horizon's included, with what each costs."
         }
         Page::Controller => "Controllers: their buttons, sticks, vibration and menu navigation.",
+        Page::Touch => "The touch controls: how far a drag turns, the buttons' size and opacity.",
         Page::Extras => {
             "Optional additions, all off by default: the game stays vanilla until you turn one on."
         }
@@ -1186,6 +1229,7 @@ impl OptionsUi {
             Page::ShaderPacks => "Shader Packs",
             Page::Graphics | Page::GraphicsAdvanced => "options.videoTitle",
             Page::Controller => "Controller Settings",
+            Page::Touch => "Touch Controls",
             Page::PadBinds => "Controller Binds",
             Page::Extras => "Horizon Extras",
             Page::Credits => "credits_and_attribution.screen.title",
@@ -1360,6 +1404,19 @@ impl OptionsUi {
                         Row::Buttons(self.extra_button(s, crate::extras::Item::NoAi), None)
                     }),
                 )
+                // No launcher on iOS: the account is signed in here.
+                .chain(cfg!(target_os = "ios").then(|| {
+                    Row::Buttons(
+                        button(
+                            0.0,
+                            0.0,
+                            310.0,
+                            Text::literal("Microsoft Account..."),
+                            Act::Account,
+                        ),
+                        None,
+                    )
+                }))
                 .collect()
             }
             Page::Agent => {
@@ -1474,8 +1531,27 @@ impl OptionsUi {
                     ),
                     None,
                 ));
+                // The touch controls' page, on a touch screen.
+                if cfg!(target_os = "ios") {
+                    rows.push(Row::Buttons(
+                        button(
+                            0.0,
+                            0.0,
+                            310.0,
+                            Text::literal("Touch Controls..."),
+                            Act::Push(Page::Touch),
+                        ),
+                        None,
+                    ));
+                }
                 self.filter_option_rows(rows)
             }
+            Page::Touch => pairs(&[
+                Opt::TouchLookSensitivity,
+                Opt::TouchButtonScale,
+                Opt::TouchOpacity,
+                Opt::TouchHaptics,
+            ]),
             Page::Controller => {
                 let mut rows = vec![Row::Buttons(
                     button(
@@ -2622,6 +2698,7 @@ impl OptionsUi {
                         }
                         Act::NativeButton(i, b) => events.push(Event::NativeButton(i, b)),
                         Act::OpenModFolder => events.push(Event::OpenModFolder),
+                        Act::Account => events.push(Event::Account),
                         Act::PickShaderPack(i) => {
                             if let Some(pack) = s.shader_packs.get(i) {
                                 s.horizon.shader_pack = if s.horizon.shader_pack == pack.file {
@@ -2765,6 +2842,15 @@ impl OptionsUi {
         events
     }
     /// Typed text (the language search box).
+    /// A search box takes typed text: the packs', the languages' or the settings' (the iOS
+    /// keyboard shows for it).
+    pub fn text_focused(&self) -> bool {
+        match self.page() {
+            Page::Packs => self.pack_screen.as_ref().is_some_and(|p| p.search_focused()),
+            Page::Language => self.language_search.focused,
+            _ => self.settings_search_active(),
+        }
+    }
     pub fn type_text(&mut self, atlas: &HudAtlas, text: &str) {
         if self.resource_error.is_some() {
             return;

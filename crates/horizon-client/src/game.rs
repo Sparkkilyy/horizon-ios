@@ -134,6 +134,10 @@ mod options;
 mod packs;
 mod pad;
 mod pad_menu;
+#[cfg(target_os = "ios")]
+mod touch;
+#[cfg(target_os = "ios")]
+mod account;
 mod paintings;
 mod pandas;
 mod passengers;
@@ -352,6 +356,9 @@ impl Options {
         let mut o = Self {
             resources: if sibling.join("horizon-resources.json").exists() {
                 sibling
+            } else if cfg!(target_os = "ios") {
+                // Copied by the player into the app's Documents, the working directory (main.rs).
+                std::path::PathBuf::from("resources")
             } else {
                 std::path::Path::new(".local/horizon-client").join(horizon_core::VANILLA_VERSION)
             },
@@ -5737,9 +5744,11 @@ impl Game<'_> {
     fn apply_mouse_look(&mut self) {
         let look = self.look_options();
         let time = self.started.elapsed().as_secs_f64();
-        let pointer = self.captured || self.agent_pointer;
+        // iOS has no pointer to grab: the touch controls' drags turn the view (game/touch.rs).
+        let ios = cfg!(target_os = "ios");
+        let pointer = self.captured || self.agent_pointer || ios;
         let grabbed = pointer && self.screen == Screen::Playing && self.player.is_some();
-        let active = self.focused || self.agent_pointer;
+        let active = self.focused || self.agent_pointer || ios;
         if let Some((xo, yo)) = self
             .mouse
             .handle_accumulated_movement(time, active, grabbed, look)
@@ -5818,7 +5827,7 @@ impl Game<'_> {
         self.agent_pointer = false;
         let Some(window) = &self.window else { return };
         let size = self.renderer.as_ref().map_or_else(
-            || window.inner_size().into(),
+            || horizon_client::gfx::window_size(window).into(),
             |r| [r.config.width, r.config.height],
         );
         let centre =
@@ -6046,11 +6055,15 @@ impl Game<'_> {
         self.draw_dialog(&mut batch);
         self.draw_pack_prompt(&mut batch);
         self.draw_link_prompt(&mut batch);
+        #[cfg(target_os = "ios")]
+        self.draw_account(&mut batch);
         // Gui.extractRenderState: the debug overlay comes after the screen
         // and the toasts, so it is over everything, menus included.
         self.draw_debug_overlay(&mut batch, size);
         self.frame_graph
             .draw(self.settings.horizon.overlay, &mut batch, &self.gui.atlas);
+        #[cfg(target_os = "ios")]
+        self.draw_touch_controls(&mut batch);
         self.draw_pad_cursor(&mut batch);
         batch
     }
@@ -12774,8 +12787,7 @@ impl ApplicationHandler for Game<'_> {
             attributes, "horizon", "horizon",
         );
         let window = match event_loop.create_window(
-            attributes
-                .with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
+            platform_window_attributes(attributes, size)
                 .with_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None))),
         ) {
             Ok(w) => Arc::new(w),
@@ -12803,6 +12815,12 @@ impl ApplicationHandler for Game<'_> {
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         if self.window.as_ref().is_none_or(|w| w.id() != id) {
+            return;
+        }
+        #[cfg(target_os = "ios")]
+        if let WindowEvent::KeyboardInput { event, .. } = &event
+            && self.ios_typed(event)
+        {
             return;
         }
         if let WindowEvent::KeyboardInput { event, .. } = &event
@@ -13016,7 +13034,7 @@ impl ApplicationHandler for Game<'_> {
                         let size = self
                             .window
                             .as_ref()
-                            .map(|w| w.inner_size())
+                            .map(|w| horizon_client::gfx::window_size(w))
                             .unwrap_or_default();
                         let batch = HudBatch::new([size.width, size.height]);
                         title.scroll_worlds(d, self.cursor, (batch.width, batch.height));
@@ -13078,6 +13096,12 @@ impl ApplicationHandler for Game<'_> {
                     }
                     if self.screen == Screen::Advancements {
                         self.advancements_scroll(scaled(raw_x) as f32, d);
+                    }
+                }
+                #[cfg(target_os = "ios")]
+                WindowEvent::MouseInput { state, button, .. } if self.account_open() => {
+                    if state == ElementState::Pressed && button == MouseButton::Left {
+                        self.account_click();
                     }
                 }
                 WindowEvent::MouseInput { state, button, .. } if self.link_prompt.is_some() => {
@@ -15259,8 +15283,7 @@ impl Loading {
             attributes, "horizon", "horizon",
         );
         let window = match event_loop.create_window(
-            attributes
-                .with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
+            platform_window_attributes(attributes, size)
                 .with_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None))),
         ) {
             Ok(w) => Arc::new(w),
@@ -15462,14 +15485,55 @@ enum App {
     Loading(Box<Loading>),
     Ready(Box<Game<'static>>),
 }
+/// The app is in the background (iOS): iOS ends an app that draws there, so no frames are drawn
+/// until it is back.
+static BACKGROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 impl ApplicationHandler for App {
+    fn memory_warning(&mut self, _event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "ios")]
+        if let App::Ready(game) = self {
+            game.ios_memory_warning();
+        }
+    }
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        log::info!("Horizon: suspended");
+        BACKGROUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(target_os = "ios")]
+        if let App::Ready(game) = self {
+            game.ios_suspend();
+        }
+    }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let was_background = BACKGROUND.swap(false, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(target_os = "ios")]
+        if was_background && let App::Ready(game) = self {
+            game.ios_resume();
+        }
+        #[cfg(not(target_os = "ios"))]
+        let _ = was_background;
         match self {
             App::Loading(loading) => loading.resumed(event_loop),
             App::Ready(game) => game.resumed(event_loop),
         }
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        if matches!(event, WindowEvent::RedrawRequested)
+            && BACKGROUND.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        }
+        #[cfg(target_os = "ios")]
+        if let WindowEvent::Touch(touch) = event {
+            if let App::Ready(game) = self {
+                game.handle_touch(event_loop, touch);
+                return;
+            }
+            for event in touch_as_mouse(touch) {
+                self.window_event(event_loop, id, event);
+            }
+            return;
+        }
         match self {
             App::Loading(loading) => loading.window_event(event_loop, id, event),
             App::Ready(game) => game.window_event(event_loop, id, event),
@@ -15481,6 +15545,12 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "ios")]
+        self.stop_on_error();
+        #[cfg(target_os = "ios")]
+        if let App::Ready(game) = self {
+            game.touch_poll(event_loop);
+        }
         enum Step {
             Waiting,
             Ready(Box<Game<'static>>),
@@ -15522,6 +15592,8 @@ impl ApplicationHandler for App {
                     loading.error = Some(e);
                 }
                 event_loop.exit();
+                #[cfg(target_os = "ios")]
+                self.stop_on_error();
             }
         }
     }
@@ -15529,6 +15601,111 @@ impl ApplicationHandler for App {
         if let App::Ready(game) = self {
             game.exiting(event_loop);
         }
+    }
+}
+
+/// The finger that acts as the mouse (iOS), `u64::MAX` for none.
+#[cfg(target_os = "ios")]
+static MOUSE_FINGER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// While the resources load (the startup menu, before the game's own touch handling in
+/// game/touch.rs), the first finger down is the mouse: it moves the cursor and holds the left
+/// button, so every menu can be tapped.
+#[cfg(target_os = "ios")]
+fn touch_as_mouse(touch: winit::event::Touch) -> Vec<WindowEvent> {
+    use std::sync::atomic::Ordering::Relaxed;
+    use winit::event::{ElementState, MouseButton, TouchPhase};
+    let moved = WindowEvent::CursorMoved {
+        device_id: touch.device_id,
+        position: touch.location,
+    };
+    let button = |state| WindowEvent::MouseInput {
+        device_id: touch.device_id,
+        state,
+        button: MouseButton::Left,
+    };
+    let finger = MOUSE_FINGER.load(Relaxed);
+    match touch.phase {
+        TouchPhase::Started if finger == u64::MAX => {
+            MOUSE_FINGER.store(touch.id, Relaxed);
+            vec![moved, button(ElementState::Pressed)]
+        }
+        TouchPhase::Moved if finger == touch.id => vec![moved],
+        TouchPhase::Ended | TouchPhase::Cancelled if finger == touch.id => {
+            MOUSE_FINGER.store(u64::MAX, Relaxed);
+            vec![moved, button(ElementState::Released)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The window's starting size, and on iOS its system gestures.
+///
+/// On iOS a window size is a UIWindow frame in points, and 1280x720 is larger than a phone's
+/// screen (844x390 on an iPhone 12), which then shows only its top-left corner: there the window
+/// takes the screen's size. iOS also holds touches near the screen's edges for its own swipes
+/// (the home indicator's), so buttons at the bottom took several taps: the game takes the edges
+/// first, and leaving the app takes a second swipe.
+#[cfg(not(target_os = "ios"))]
+fn platform_window_attributes(
+    attributes: winit::window::WindowAttributes,
+    size: [f64; 2],
+) -> winit::window::WindowAttributes {
+    attributes.with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
+}
+#[cfg(target_os = "ios")]
+fn platform_window_attributes(
+    attributes: winit::window::WindowAttributes,
+    _size: [f64; 2],
+) -> winit::window::WindowAttributes {
+    use winit::platform::ios::{ScreenEdge, WindowAttributesExtIOS};
+    attributes
+        .with_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL)
+        .with_prefers_home_indicator_hidden(true)
+}
+
+#[cfg(target_os = "ios")]
+impl App {
+    /// iOS ignores `event_loop.exit()` and `run_app` never returns, so the error `run` would
+    /// return is reported here (main.rs's crash report and log flush), and the app ends.
+    fn stop_on_error(&mut self) {
+        let error = match self {
+            App::Loading(loading) => loading.error.take(),
+            App::Ready(game) => game.error.take(),
+        };
+        if let Some(error) = error {
+            use horizon_client::{crash, logging};
+            log::error!("Horizon: {error}");
+            crash::report_error(&logging::game_home(), "client", &*error);
+            logging::flush();
+            // The resources failed to load (missing, or from another version): say what to do
+            // over the loading screen rather than vanish.
+            if let App::Loading(loading) = self
+                && let Some(window) = &loading.window
+            {
+                horizon_ios::alert(
+                    ui_view_controller(window),
+                    "Horizon can't load its resources",
+                    &format!(
+                        "{error}\n\nCopy the prepared resources folder (\".local/horizon-client/26.3\" \
+                         in your computer's Horizon install) into Files › On My iPhone › Horizon, \
+                         name it \"resources\", then close and reopen Horizon."
+                    ),
+                );
+                return;
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
+/// The window's root view controller, which presents iOS alerts.
+#[cfg(target_os = "ios")]
+fn ui_view_controller(window: &Window) -> Option<std::ptr::NonNull<std::ffi::c_void>> {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match window.window_handle().ok()?.as_raw() {
+        RawWindowHandle::UiKit(handle) => handle.ui_view_controller,
+        _ => None,
     }
 }
 
@@ -15592,6 +15769,9 @@ pub fn run() -> Result<()> {
     let Some(mut options) = Options::read()? else {
         return Ok(());
     };
+    // No launcher on iOS: the account signed in the game itself, renewed in the background.
+    #[cfg(target_os = "ios")]
+    account::restore_in_background();
     if options.execution_role == execution_role::ExecutionRole::DedicatedServer
         && !dedicated::preflight(&mut options)?
     {
