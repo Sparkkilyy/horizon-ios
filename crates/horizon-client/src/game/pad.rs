@@ -33,6 +33,10 @@ pub(super) struct Pads {
     /// The touch controls (iOS), another virtual pad (game/touch.rs).
     #[cfg(target_os = "ios")]
     pub(super) touch: horizon_client::touch::TouchControls,
+    /// Where the game saw each finger (GUI pixels) and when it lifted, drawn as dots while
+    /// touch input is checked on devices (game/touch.rs).
+    #[cfg(target_os = "ios")]
+    pub(super) touch_dots: Vec<(u64, [f32; 2], Option<Instant>)>,
     /// The virtual pad was in use at the last poll.
     virtual_input: bool,
     /// Buttons a `pad ... tap` releases at the next poll.

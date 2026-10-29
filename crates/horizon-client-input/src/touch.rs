@@ -131,7 +131,8 @@ enum Role {
         since: Instant,
         dropped: bool,
     },
-    Button(TouchButton),
+    /// A button, and whether a frame has seen it held.
+    Button(TouchButton, bool),
     Joystick {
         origin: [f32; 2],
         at: [f32; 2],
@@ -172,6 +173,9 @@ pub struct TouchControls {
     tap: bool,
     hotbar: Option<usize>,
     drop: bool,
+    /// Buttons lifted before any frame saw them: iOS often delivers a touch near the screen's
+    /// edge only when it ends, so its start and end come between two frames.
+    quick: Vec<TouchButton>,
 }
 
 impl Default for TouchControls {
@@ -184,6 +188,7 @@ impl Default for TouchControls {
             tap: false,
             hotbar: None,
             drop: false,
+            quick: Vec::new(),
         }
     }
 }
@@ -211,7 +216,7 @@ impl TouchControls {
             .into_iter()
             .find(|&b| self.shown(b) && layout.button(b).contains(at))
         {
-            Role::Button(button)
+            Role::Button(button, false)
         } else if layout.joystick_zone().contains(at) && !self.has_joystick() {
             Role::Joystick { origin: at, at }
         } else {
@@ -239,16 +244,17 @@ impl TouchControls {
 
     pub fn end(&mut self, id: u64, at: [f32; 2], now: Instant) {
         self.moved(id, at);
-        if let Some(Role::Look {
-            since,
-            start,
-            breaking: false,
-            ..
-        }) = self.fingers.remove(&id)
-            && now.duration_since(since) < TAP
-            && distance(start, at) <= SLOP
-        {
-            self.tap = true;
+        match self.fingers.remove(&id) {
+            Some(Role::Look {
+                since,
+                start,
+                breaking: false,
+                ..
+            }) if now.duration_since(since) < TAP && distance(start, at) <= SLOP => {
+                self.tap = true;
+            }
+            Some(Role::Button(button, false)) => self.quick.push(button),
+            _ => {}
         }
     }
 
@@ -262,6 +268,7 @@ impl TouchControls {
         self.tap = false;
         self.hotbar = None;
         self.drop = false;
+        self.quick.clear();
     }
 
     /// The button is on screen.
@@ -297,15 +304,21 @@ impl TouchControls {
     pub fn held(&self, button: TouchButton) -> bool {
         self.fingers
             .values()
-            .any(|r| *r == Role::Button(button))
+            .any(|r| matches!(r, Role::Button(b, _) if *b == button))
     }
 
     /// This frame's controls; the turn, taps and slot changes since the last are taken.
     pub fn frame(&mut self, now: Instant) -> TouchFrame {
         let mut pad = PadState::default();
+        for button in std::mem::take(&mut self.quick) {
+            button.press(&mut pad);
+        }
         for role in self.fingers.values_mut() {
             match role {
-                Role::Button(button) => button.press(&mut pad),
+                Role::Button(button, seen) => {
+                    button.press(&mut pad);
+                    *seen = true;
+                }
                 Role::Look {
                     since,
                     start,
@@ -400,6 +413,22 @@ mod tests {
         assert!(f.pad.held(Button::South));
         assert!(f.pad.held(Button::RightStick));
         c.end(1, centre(c.layout.button(TouchButton::Jump)), now);
+        assert!(!c.frame(now).pad.held(Button::South));
+    }
+
+    #[test]
+    fn a_tap_between_frames_still_presses_once() {
+        let now = Instant::now();
+        let mut c = controls();
+        let jump = centre(c.layout.button(TouchButton::Jump));
+        c.start(1, jump, now);
+        c.end(1, jump, now);
+        assert!(c.frame(now).pad.held(Button::South));
+        assert!(!c.frame(now).pad.held(Button::South), "once");
+        // Seen held by a frame: released when lifted.
+        c.start(2, jump, now);
+        assert!(c.frame(now).pad.held(Button::South));
+        c.end(2, jump, now);
         assert!(!c.frame(now).pad.held(Button::South));
     }
 

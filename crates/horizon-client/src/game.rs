@@ -6061,6 +6061,8 @@ impl Game<'_> {
         #[cfg(target_os = "ios")]
         self.draw_touch_controls(&mut batch);
         self.draw_pad_cursor(&mut batch);
+        #[cfg(target_os = "ios")]
+        self.draw_touch_dots(&mut batch);
         batch
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
@@ -15493,10 +15495,12 @@ impl ApplicationHandler for App {
         }
         #[cfg(target_os = "ios")]
         if let WindowEvent::Touch(touch) = event {
-            if let App::Ready(game) = self
-                && game.touch_event(&touch)
-            {
-                return;
+            if let App::Ready(game) = self {
+                let controls = game.touch_event(&touch);
+                game.note_touch(&touch, controls);
+                if controls {
+                    return;
+                }
             }
             for event in touch_as_mouse(touch) {
                 self.window_event(event_loop, id, event);

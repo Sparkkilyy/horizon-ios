@@ -7,10 +7,55 @@ use horizon_client::{
     hud::{HudBatch, rgba},
     touch::{STICK_RADIUS, TouchButton, TouchLayout},
 };
-use std::time::Instant;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 use winit::event::{Touch, TouchPhase};
 
+/// How long a lifted finger's dot stays.
+const DOT_AFTER: Duration = Duration::from_secs(1);
+
 impl Game<'_> {
+    /// Logs a touch with what the game makes of it, and keeps its dot: for checking touch input
+    /// on a device, where taps that miss can't be seen otherwise. `controls`: the controls took it
+    /// (else it is the menus' mouse).
+    pub(super) fn note_touch(&mut self, touch: &Touch, controls: bool) {
+        static START: OnceLock<Instant> = OnceLock::new();
+        let ms = START.get_or_init(Instant::now).elapsed().as_millis();
+        let Some(batch) = self.gui_scale() else {
+            return;
+        };
+        let at = [
+            (touch.location.x / f64::from(batch.scale)) as f32,
+            (touch.location.y / f64::from(batch.scale)) as f32,
+        ];
+        let now = Instant::now();
+        let dots = &mut self.pad.touch_dots;
+        dots.retain(|d| d.2.is_none_or(|t| now.duration_since(t) < DOT_AFTER) && d.0 != touch.id);
+        let lifted = matches!(touch.phase, TouchPhase::Ended | TouchPhase::Cancelled);
+        dots.push((touch.id, at, lifted.then_some(now)));
+        if touch.phase == TouchPhase::Moved {
+            return;
+        }
+        let window = self
+            .window
+            .as_ref()
+            .map(|w| (w.inner_size(), w.scale_factor()));
+        log::info!(
+            "Horizon touch: {ms} ms {:?} finger {:x} at {:.0},{:.0} px = {:.1},{:.1} gui of {}x{} (scale {}, window {window:?}) -> {}, menu {}",
+            touch.phase,
+            touch.id & 0xffff,
+            touch.location.x,
+            touch.location.y,
+            at[0],
+            at[1],
+            batch.width,
+            batch.height,
+            batch.scale,
+            if controls { "controls" } else { "mouse" },
+            self.pad_in_menu(),
+        );
+    }
+
     /// No touch controls: a menu, a dialog or no world.
     fn touch_paused(&self) -> bool {
         self.pad_in_menu() || self.dialog_open() || self.player.is_none()
@@ -76,6 +121,20 @@ impl Game<'_> {
             pad.triggers[usize::from(entity)] = 1.0;
         }
         pad
+    }
+
+    /// A dot where the game saw each finger, menus included: red while down, grey for a second
+    /// after.
+    pub(super) fn draw_touch_dots(&self, batch: &mut HudBatch) {
+        let now = Instant::now();
+        for &(_, [x, y], lifted) in &self.pad.touch_dots {
+            let color = match lifted {
+                None => rgba(255, 40, 40, 230),
+                Some(t) if now.duration_since(t) < DOT_AFTER => rgba(200, 200, 200, 180),
+                Some(_) => continue,
+            };
+            batch.fill(&self.gui.atlas, x - 2.0, y - 2.0, 4.0, 4.0, color);
+        }
     }
 
     /// The controls over the HUD while playing: translucent buttons, and the joystick where the
