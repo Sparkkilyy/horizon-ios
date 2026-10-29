@@ -12777,8 +12777,7 @@ impl ApplicationHandler for Game<'_> {
             attributes, "horizon", "horizon",
         );
         let window = match event_loop.create_window(
-            attributes
-                .with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
+            with_window_size(attributes, size)
                 .with_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None))),
         ) {
             Ok(w) => Arc::new(w),
@@ -15262,8 +15261,7 @@ impl Loading {
             attributes, "horizon", "horizon",
         );
         let window = match event_loop.create_window(
-            attributes
-                .with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
+            with_window_size(attributes, size)
                 .with_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None))),
         ) {
             Ok(w) => Arc::new(w),
@@ -15591,6 +15589,20 @@ fn touch_as_mouse(touch: winit::event::Touch) -> Vec<WindowEvent> {
             vec![moved, button(ElementState::Released)]
         }
         _ => Vec::new(),
+    }
+}
+
+/// The window's starting size. On iOS a window size is a UIWindow frame in points, and 1280x720
+/// is larger than a phone's screen (844x390 on an iPhone 12), which then shows only its top-left
+/// corner: there the window takes the screen's size.
+fn with_window_size(
+    attributes: winit::window::WindowAttributes,
+    size: [f64; 2],
+) -> winit::window::WindowAttributes {
+    if cfg!(target_os = "ios") {
+        attributes
+    } else {
+        attributes.with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
     }
 }
 
