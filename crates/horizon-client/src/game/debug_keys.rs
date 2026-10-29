@@ -384,7 +384,7 @@ impl Game<'_> {
             );
             if let Some(w) = self.window.as_ref() {
                 let density = w.scale_factor();
-                let logical = w.inner_size().to_logical::<f64>(density);
+                let logical = horizon_client::gfx::window_size(w).to_logical::<f64>(density);
                 d.group(
                     "system",
                     [format!(

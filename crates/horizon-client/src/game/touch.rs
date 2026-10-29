@@ -39,7 +39,7 @@ impl Game<'_> {
         let window = self
             .window
             .as_ref()
-            .map(|w| (w.inner_size(), w.scale_factor()));
+            .map(|w| (horizon_client::gfx::window_size(w), w.scale_factor()));
         log::info!(
             "Horizon touch: {ms} ms {:?} finger {:x} at {:.0},{:.0} px = {:.1},{:.1} gui of {}x{} (scale {}, window {window:?}) -> {}, menu {}",
             touch.phase,

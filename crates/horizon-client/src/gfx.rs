@@ -980,6 +980,17 @@ async fn open_device(
     }
     Err(format!("{NO_GPU_DRIVER} ({})", failures.join("; ")).into())
 }
+/// The window's size in pixels, which the surface covers. On iOS `inner_size` is the safe area
+/// (the screen less the notch and the home indicator), but the view, its Metal layer and the
+/// touches' positions cover the whole screen: a surface the safe area's size was stretched over
+/// it, and taps landed further right and lower than they showed.
+pub fn window_size(window: &Window) -> winit::dpi::PhysicalSize<u32> {
+    if cfg!(target_os = "ios") {
+        window.outer_size()
+    } else {
+        window.inner_size()
+    }
+}
 /// What to tell a player whose system offers no usable graphics adapter.
 /// Vulkan is loaded at run time (the game links no graphics library), so a
 /// missing driver shows here rather than as a missing-DLL dialog.
@@ -1099,7 +1110,7 @@ impl Renderer {
         };
         let info = adapter.get_info();
         crate::graphics::suggest_reduced_far_detail(crate::graphics::lod_capped(&info));
-        let size = window.inner_size();
+        let size = window_size(&window);
         let (config, present_modes, hdr_output) = if let Some(surface) = &surface {
             let mut config = surface
                 .get_default_config(&adapter, size.width.max(1), size.height.max(1))

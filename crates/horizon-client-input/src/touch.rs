@@ -90,7 +90,7 @@ impl TouchLayout {
         Self {
             width,
             height,
-            inset: if width >= 480.0 { 32.0 } else { 8.0 },
+            inset: if width >= 480.0 { 36.0 } else { 8.0 },
         }
     }
     /// Hotbar slot `n` (0..9), as vanilla draws the bar: 182x22 centred at the bottom.

@@ -5825,7 +5825,7 @@ impl Game<'_> {
         self.agent_pointer = false;
         let Some(window) = &self.window else { return };
         let size = self.renderer.as_ref().map_or_else(
-            || window.inner_size().into(),
+            || horizon_client::gfx::window_size(window).into(),
             |r| [r.config.width, r.config.height],
         );
         let centre =
@@ -13026,7 +13026,7 @@ impl ApplicationHandler for Game<'_> {
                         let size = self
                             .window
                             .as_ref()
-                            .map(|w| w.inner_size())
+                            .map(|w| horizon_client::gfx::window_size(w))
                             .unwrap_or_default();
                         let batch = HudBatch::new([size.width, size.height]);
                         title.scroll_worlds(d, self.cursor, (batch.width, batch.height));
