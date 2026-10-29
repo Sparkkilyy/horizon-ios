@@ -51,6 +51,10 @@ pub(super) struct Pads {
     /// The system keyboard was asked to show.
     #[cfg(target_os = "ios")]
     pub(super) keyboard_shown: bool,
+    /// The player hid the keyboard (its button, or Return) while a field kept focus: it stays
+    /// hidden until their next tap.
+    #[cfg(target_os = "ios")]
+    pub(super) keyboard_dismissed: bool,
     /// The virtual pad was in use at the last poll.
     virtual_input: bool,
     /// Buttons a `pad ... tap` releases at the next poll.

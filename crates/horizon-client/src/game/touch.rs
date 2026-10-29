@@ -80,6 +80,11 @@ impl Game<'_> {
         let slots = self.touch_slots();
         let actions = match touch.phase {
             TouchPhase::Started if !self.pad.menu_touch.owns(touch.id) => {
+                if self.pad.keyboard_shown && layout.keyboard_hide().contains(at) {
+                    self.pad.menu_ignored = Some(touch.id);
+                    self.pad.keyboard_dismissed = true;
+                    return;
+                }
                 if self.touch_close_shown() && layout.close().contains(at) {
                     self.pad.menu_ignored = Some(touch.id);
                     if let Err(e) = self.touch_back() {
@@ -97,8 +102,10 @@ impl Game<'_> {
             TouchPhase::Started => Vec::new(),
             TouchPhase::Moved => self.pad.menu_touch.moved(touch.id, at, slots),
             TouchPhase::Ended | TouchPhase::Cancelled => {
-                // A tap may have focused a text field the keyboard went away from: show it again.
+                // A tap may have focused a text field the keyboard went away from: show it again
+                // if one has focus after it.
                 self.pad.keyboard_shown = false;
+                self.pad.keyboard_dismissed = false;
                 self.pad.menu_touch.end(touch.id, at)
             }
         };
@@ -171,6 +178,10 @@ impl Game<'_> {
             .poll(Instant::now(), self.touch_slots());
         self.menu_actions(event_loop, actions);
         let typing = self.text_input_active();
+        if !typing {
+            self.pad.keyboard_dismissed = false;
+        }
+        let typing = typing && !self.pad.keyboard_dismissed;
         if typing != self.pad.keyboard_shown
             && let Some(window) = &self.window
         {
@@ -201,6 +212,9 @@ impl Game<'_> {
         {
             if text == "\n" || text == "\r" {
                 self.pad_osk_output(Output::Enter);
+                // Return is also how the keyboard goes away: a field that keeps focus (a world's
+                // name) would otherwise keep it over the buttons under it.
+                self.pad.keyboard_dismissed = true;
             } else {
                 self.pad_osk_output(Output::Text(text.to_owned()));
             }
@@ -311,6 +325,11 @@ impl Game<'_> {
         }
         let atlas = &self.gui.atlas;
         let layout = TouchLayout::new(batch.width, batch.height);
+        if self.pad.keyboard_shown {
+            let hide = layout.keyboard_hide();
+            tile(batch, atlas, hide, false);
+            keyboard_down(batch, atlas, hide);
+        }
         if self.touch_paused() {
             if self.touch_close_shown() {
                 let close = layout.close();
@@ -506,6 +525,24 @@ fn eye(batch: &mut HudBatch, atlas: &HudAtlas, r: Rect) {
     batch.fill(atlas, cx - 4.0, cy - 3.0, 8.0, 6.0, WHITE);
     batch.fill(atlas, cx - 2.0, cy - 4.0, 4.0, 8.0, WHITE);
     batch.fill(atlas, cx - 1.0, cy - 1.0, 2.0, 2.0, rgba(40, 40, 40, 220));
+}
+
+/// Hide the keyboard: keys over an arrow pointing down.
+fn keyboard_down(batch: &mut HudBatch, atlas: &HudAtlas, r: Rect) {
+    let (cx, cy) = ((r.x + r.w / 2.0).round(), (r.y + r.h / 2.0).round());
+    for row in 0..2 {
+        for col in 0..4 {
+            let (x, y) = (cx - 7.0 + col as f32 * 4.0, cy - 6.0 + row as f32 * 3.0);
+            batch.fill(atlas, x, y, 2.0, 2.0, WHITE);
+        }
+    }
+    triangle(
+        batch,
+        atlas,
+        [cx - 4.0, cy + 1.0],
+        [cx + 4.0, cy + 1.0],
+        [cx, cy + 6.0],
+    );
 }
 
 /// Close: an X.

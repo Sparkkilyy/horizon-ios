@@ -139,6 +139,12 @@ impl TouchLayout {
     pub fn close(&self) -> Rect {
         Rect::new(self.width - self.inset - 20.0, 4.0, 20.0, 20.0)
     }
+    /// The button that hides the system keyboard, left of the close button: the iPhone's
+    /// keyboard has no key of its own for it.
+    pub fn keyboard_hide(&self) -> Rect {
+        let close = self.close();
+        Rect::new(close.x - close.w - 5.0, close.y, 20.0, 20.0)
+    }
     /// The Shift toggle under it in inventories: taps quick-move while it is on.
     pub fn shift(&self) -> Rect {
         let close = self.close();
