@@ -18,7 +18,9 @@ concurrency:
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 120
+    # A release build (thin LTO, one codegen unit) takes the longest; the cache keeps later
+    # ones shorter.
+    timeout-minutes: 180
     env:
       IPHONEOS_DEPLOYMENT_TARGET: "15.0"
       CARGO_TERM_COLOR: always
@@ -45,8 +47,8 @@ jobs:
 
       - name: Touch control and account tests
         run: |
-          cargo test -p horizon-client-input --lib touch
-          cargo test -p horizon-account
+          cargo test --locked -p horizon-client-input --lib touch
+          cargo test --locked -p horizon-account
 
       - name: Build
         env:
@@ -54,14 +56,14 @@ jobs:
           # docs/microsoft-account.md. Without it the game plays offline only.
           HORIZON_MSA_CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
         run: >
-          cargo build --profile fast --target aarch64-apple-ios
+          cargo build --release --locked --target aarch64-apple-ios
           -p horizon-client --bin horizon-client --no-default-features --features audio
 
       - name: Bundle
         run: |
           app=Payload/Horizon.app
           mkdir -p "$app"
-          cp target/aarch64-apple-ios/fast/horizon-client "$app/"
+          cp target/aarch64-apple-ios/release/horizon-client "$app/"
           sed "s/@BUILD@/${{ github.run_number }}/g" packaging/ios/Info.plist > "$app/Info.plist"
           plutil -lint "$app/Info.plist"
           printf 'APPL????' > "$app/PkgInfo"
@@ -107,11 +109,6 @@ jobs:
           name: Horizon-ipa
           path: Horizon.ipa
 
-      # The lockfile cargo resolved, for committing back (this machine-less workflow adds crates).
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Cargo-lock
-          path: Cargo.lock
 
       - name: Publish ios-latest
         env:
