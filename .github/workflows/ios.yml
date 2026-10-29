@@ -43,6 +43,9 @@ jobs:
         with:
           shared-key: ios
 
+      - name: Touch control tests
+        run: cargo test --locked -p horizon-client-input --lib touch
+
       - name: Build
         run: >
           cargo build --profile fast --locked --target aarch64-apple-ios

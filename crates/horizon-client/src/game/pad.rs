@@ -30,6 +30,9 @@ pub(super) struct Pads {
     devices: hardware::Devices,
     /// The virtual pad of `horizon-ctl pad`.
     injected: PadState,
+    /// The touch controls (iOS), another virtual pad (game/touch.rs).
+    #[cfg(target_os = "ios")]
+    pub(super) touch: horizon_client::touch::TouchControls,
     /// The virtual pad was in use at the last poll.
     virtual_input: bool,
     /// Buttons a `pad ... tap` releases at the next poll.
@@ -93,7 +96,8 @@ impl Game<'_> {
     /// Once per loop iteration: read the pads and act on button changes.
     pub(super) fn poll_pads(&mut self, event_loop: &ActiveEventLoop) {
         let settings = &self.settings.controller;
-        if !settings.enabled {
+        // The touch controls are no controller the setting turns off.
+        if !settings.enabled && !cfg!(target_os = "ios") {
             self.pad_output_off();
             if self.pad.state != PadState::default() {
                 self.pad.state = PadState::default();
@@ -105,8 +109,14 @@ impl Game<'_> {
         }
         let hardware = self.pad.read();
         self.ui.options.pad_style = self.settings.controller.glyphs.resolve(self.pad.style);
-        let state = hardware.merge(&self.pad.injected);
-        self.pad.virtual_input = self.pad.injected != PadState::default();
+        let pads = hardware.merge(&self.pad.injected);
+        #[cfg(target_os = "ios")]
+        let touch = self.touch_frame();
+        #[cfg(not(target_os = "ios"))]
+        let touch = PadState::default();
+        let state = pads.merge(&touch);
+        self.pad.virtual_input =
+            self.pad.injected != PadState::default() || touch != PadState::default();
         for button in std::mem::take(&mut self.pad.taps) {
             self.pad.injected.set(button, false);
         }
@@ -114,6 +124,10 @@ impl Game<'_> {
         let edges = self.pad.edges.update(&state, threshold);
         if state.active(&self.settings.controller) {
             self.last_input = Instant::now();
+        }
+        // Touches are no controller in menus: they tap as the mouse, without the focus ring or the
+        // on-screen keyboard a pad brings.
+        if pads.active(&self.settings.controller) {
             self.pad.in_use = true;
         }
         self.pad.state = state;
@@ -180,7 +194,7 @@ impl Game<'_> {
             return Ok(());
         }
         let playing = !self.pad_in_menu();
-        if down && playing && !self.captured && self.focused {
+        if down && playing && !self.captured && self.focused && !cfg!(target_os = "ios") {
             // Like a click into the window: take the pointer.
             self.capture(true);
         }

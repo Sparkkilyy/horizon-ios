@@ -134,6 +134,8 @@ mod options;
 mod packs;
 mod pad;
 mod pad_menu;
+#[cfg(target_os = "ios")]
+mod touch;
 mod paintings;
 mod pandas;
 mod passengers;
@@ -5740,9 +5742,11 @@ impl Game<'_> {
     fn apply_mouse_look(&mut self) {
         let look = self.look_options();
         let time = self.started.elapsed().as_secs_f64();
-        let pointer = self.captured || self.agent_pointer;
+        // iOS has no pointer to grab: the touch controls' drags turn the view (game/touch.rs).
+        let ios = cfg!(target_os = "ios");
+        let pointer = self.captured || self.agent_pointer || ios;
         let grabbed = pointer && self.screen == Screen::Playing && self.player.is_some();
-        let active = self.focused || self.agent_pointer;
+        let active = self.focused || self.agent_pointer || ios;
         if let Some((xo, yo)) = self
             .mouse
             .handle_accumulated_movement(time, active, grabbed, look)
@@ -6054,6 +6058,8 @@ impl Game<'_> {
         self.draw_debug_overlay(&mut batch, size);
         self.frame_graph
             .draw(self.settings.horizon.overlay, &mut batch, &self.gui.atlas);
+        #[cfg(target_os = "ios")]
+        self.draw_touch_controls(&mut batch);
         self.draw_pad_cursor(&mut batch);
         batch
     }
@@ -12777,7 +12783,7 @@ impl ApplicationHandler for Game<'_> {
             attributes, "horizon", "horizon",
         );
         let window = match event_loop.create_window(
-            with_window_size(attributes, size)
+            platform_window_attributes(attributes, size)
                 .with_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None))),
         ) {
             Ok(w) => Arc::new(w),
@@ -15261,7 +15267,7 @@ impl Loading {
             attributes, "horizon", "horizon",
         );
         let window = match event_loop.create_window(
-            with_window_size(attributes, size)
+            platform_window_attributes(attributes, size)
                 .with_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None))),
         ) {
             Ok(w) => Arc::new(w),
@@ -15487,6 +15493,11 @@ impl ApplicationHandler for App {
         }
         #[cfg(target_os = "ios")]
         if let WindowEvent::Touch(touch) = event {
+            if let App::Ready(game) = self
+                && game.touch_event(&touch)
+            {
+                return;
+            }
             for event in touch_as_mouse(touch) {
                 self.window_event(event_loop, id, event);
             }
@@ -15592,18 +15603,29 @@ fn touch_as_mouse(touch: winit::event::Touch) -> Vec<WindowEvent> {
     }
 }
 
-/// The window's starting size. On iOS a window size is a UIWindow frame in points, and 1280x720
-/// is larger than a phone's screen (844x390 on an iPhone 12), which then shows only its top-left
-/// corner: there the window takes the screen's size.
-fn with_window_size(
+/// The window's starting size, and on iOS its system gestures.
+///
+/// On iOS a window size is a UIWindow frame in points, and 1280x720 is larger than a phone's
+/// screen (844x390 on an iPhone 12), which then shows only its top-left corner: there the window
+/// takes the screen's size. iOS also holds touches near the screen's edges for its own swipes
+/// (the home indicator's), so buttons at the bottom took several taps: the game takes the edges
+/// first, and leaving the app takes a second swipe.
+#[cfg(not(target_os = "ios"))]
+fn platform_window_attributes(
     attributes: winit::window::WindowAttributes,
     size: [f64; 2],
 ) -> winit::window::WindowAttributes {
-    if cfg!(target_os = "ios") {
-        attributes
-    } else {
-        attributes.with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
-    }
+    attributes.with_inner_size(winit::dpi::LogicalSize::new(size[0], size[1]))
+}
+#[cfg(target_os = "ios")]
+fn platform_window_attributes(
+    attributes: winit::window::WindowAttributes,
+    _size: [f64; 2],
+) -> winit::window::WindowAttributes {
+    use winit::platform::ios::{ScreenEdge, WindowAttributesExtIOS};
+    attributes
+        .with_preferred_screen_edges_deferring_system_gestures(ScreenEdge::ALL)
+        .with_prefers_home_indicator_hidden(true)
 }
 
 #[cfg(target_os = "ios")]
