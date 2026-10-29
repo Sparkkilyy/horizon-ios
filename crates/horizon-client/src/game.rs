@@ -136,6 +136,8 @@ mod pad;
 mod pad_menu;
 #[cfg(target_os = "ios")]
 mod touch;
+#[cfg(target_os = "ios")]
+mod account;
 mod paintings;
 mod pandas;
 mod passengers;
@@ -6053,6 +6055,8 @@ impl Game<'_> {
         self.draw_dialog(&mut batch);
         self.draw_pack_prompt(&mut batch);
         self.draw_link_prompt(&mut batch);
+        #[cfg(target_os = "ios")]
+        self.draw_account(&mut batch);
         // Gui.extractRenderState: the debug overlay comes after the screen
         // and the toasts, so it is over everything, menus included.
         self.draw_debug_overlay(&mut batch, size);
@@ -13094,6 +13098,12 @@ impl ApplicationHandler for Game<'_> {
                         self.advancements_scroll(scaled(raw_x) as f32, d);
                     }
                 }
+                #[cfg(target_os = "ios")]
+                WindowEvent::MouseInput { state, button, .. } if self.account_open() => {
+                    if state == ElementState::Pressed && button == MouseButton::Left {
+                        self.account_click();
+                    }
+                }
                 WindowEvent::MouseInput { state, button, .. } if self.link_prompt.is_some() => {
                     if state == ElementState::Pressed && button == MouseButton::Left {
                         self.link_prompt_click();
@@ -15759,6 +15769,9 @@ pub fn run() -> Result<()> {
     let Some(mut options) = Options::read()? else {
         return Ok(());
     };
+    // No launcher on iOS: the account signed in the game itself, renewed in the background.
+    #[cfg(target_os = "ios")]
+    account::restore_in_background();
     if options.execution_role == execution_role::ExecutionRole::DedicatedServer
         && !dedicated::preflight(&mut options)?
     {

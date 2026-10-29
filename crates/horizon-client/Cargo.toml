@@ -72,6 +72,8 @@ rustix = { version = "1", default-features = false, features = ["std", "time"] }
 [target.'cfg(target_os = "ios")'.dependencies]
 # Links, the pasteboard, haptics, alerts and game controllers through UIKit (the unsafe calls).
 horizon-ios = { path = "../horizon-ios" }
+# Microsoft sign-in in the game (the launcher's flow; no launcher on iOS).
+horizon-account = { path = "../horizon-account" }
 
 [target.'cfg(windows)'.dependencies]
 # Use the registered URI handler without routing links through Explorer/cmd.

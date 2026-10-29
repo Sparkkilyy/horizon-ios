@@ -43,10 +43,16 @@ jobs:
         with:
           shared-key: ios
 
-      - name: Touch control tests
-        run: cargo test -p horizon-client-input --lib touch
+      - name: Touch control and account tests
+        run: |
+          cargo test -p horizon-client-input --lib touch
+          cargo test -p horizon-account
 
       - name: Build
+        env:
+          # The Azure app for Microsoft sign-in (a public client ID, a repository variable):
+          # docs/microsoft-account.md. Without it the game plays offline only.
+          HORIZON_MSA_CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
         run: >
           cargo build --profile fast --target aarch64-apple-ios
           -p horizon-client --bin horizon-client --no-default-features --features audio

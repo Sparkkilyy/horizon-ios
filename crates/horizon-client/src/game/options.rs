@@ -234,6 +234,10 @@ impl Game<'_> {
                     let _ = std::fs::create_dir_all(&dir);
                     super::packs::open_folder(&dir);
                 }
+                Event::Account => {
+                    #[cfg(target_os = "ios")]
+                    self.open_account();
+                }
                 Event::ListShaderPacks => {
                     self.settings.shader_packs =
                         horizon_client::shader_pack_list::scan(&Self::shader_packs_dir());

@@ -919,6 +919,8 @@ enum Act {
     NativeKey(usize, usize),
     NativeButton(usize, usize),
     OpenModFolder,
+    /// The Microsoft account screen (iOS, where there is no launcher).
+    Account,
     /// Credits & Attribution's Credits button (WinScreen without the poem).
     Credits,
     CopyAgentDetails,
@@ -969,6 +971,8 @@ pub enum Event {
     Packs(Vec<String>),
     OpenPackFolder,
     OpenModFolder,
+    /// Open the Microsoft account screen (iOS).
+    Account,
     /// The Shader Packs page opened: list `shaderpacks/` into `shader_packs`.
     ListShaderPacks,
     /// A shader pack was picked or turned off: save and apply it.
@@ -1400,6 +1404,19 @@ impl OptionsUi {
                         Row::Buttons(self.extra_button(s, crate::extras::Item::NoAi), None)
                     }),
                 )
+                // No launcher on iOS: the account is signed in here.
+                .chain(cfg!(target_os = "ios").then(|| {
+                    Row::Buttons(
+                        button(
+                            0.0,
+                            0.0,
+                            310.0,
+                            Text::literal("Microsoft Account..."),
+                            Act::Account,
+                        ),
+                        None,
+                    )
+                }))
                 .collect()
             }
             Page::Agent => {
@@ -2681,6 +2698,7 @@ impl OptionsUi {
                         }
                         Act::NativeButton(i, b) => events.push(Event::NativeButton(i, b)),
                         Act::OpenModFolder => events.push(Event::OpenModFolder),
+                        Act::Account => events.push(Event::Account),
                         Act::PickShaderPack(i) => {
                             if let Some(pack) = s.shader_packs.get(i) {
                                 s.horizon.shader_pack = if s.horizon.shader_pack == pack.file {

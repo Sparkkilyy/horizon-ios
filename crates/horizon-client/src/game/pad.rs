@@ -54,6 +54,9 @@ pub(super) struct Pads {
     /// Sneak held down by the touch Sneak button while flying or swimming.
     #[cfg(target_os = "ios")]
     pub(super) touch_sneak: bool,
+    /// The Microsoft account screen (game/account.rs).
+    #[cfg(target_os = "ios")]
+    pub(super) account: Option<super::account::AccountScreen>,
     /// The player hid the keyboard (its button, or Return) while a field kept focus: it stays
     /// hidden until their next tap.
     #[cfg(target_os = "ios")]
