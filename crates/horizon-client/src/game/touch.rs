@@ -193,10 +193,7 @@ impl Game<'_> {
         if !self.touch_slots() {
             self.pad.touch_shift = false;
         }
-        let actions = self
-            .pad
-            .menu_touch
-            .poll(Instant::now(), self.touch_slots());
+        let actions = self.pad.menu_touch.poll(Instant::now(), self.touch_slots());
         self.menu_actions(event_loop, actions);
         let typing = self.text_input_active();
         if !typing {
@@ -471,7 +468,9 @@ thread_local! {
 
 /// A colour at the buttons' opacity.
 fn fade(color: u32) -> u32 {
-    let alpha = ((color >> 24) as f32 * OPACITY.get()).round().clamp(0.0, 255.0) as u32;
+    let alpha = ((color >> 24) as f32 * OPACITY.get())
+        .round()
+        .clamp(0.0, 255.0) as u32;
     (color & 0x00ff_ffff) | alpha << 24
 }
 
@@ -603,7 +602,14 @@ fn eye(batch: &mut HudBatch, atlas: &HudAtlas, r: Rect) {
     batch.fill(atlas, cx - 6.0, cy - 1.0, 12.0, 2.0, white());
     batch.fill(atlas, cx - 4.0, cy - 3.0, 8.0, 6.0, white());
     batch.fill(atlas, cx - 2.0, cy - 4.0, 4.0, 8.0, white());
-    batch.fill(atlas, cx - 1.0, cy - 1.0, 2.0, 2.0, fade(rgba(40, 40, 40, 220)));
+    batch.fill(
+        atlas,
+        cx - 1.0,
+        cy - 1.0,
+        2.0,
+        2.0,
+        fade(rgba(40, 40, 40, 220)),
+    );
 }
 
 /// Hide the keyboard: keys over an arrow pointing down.
