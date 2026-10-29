@@ -33,10 +33,24 @@ pub(super) struct Pads {
     /// The touch controls (iOS), another virtual pad (game/touch.rs).
     #[cfg(target_os = "ios")]
     pub(super) touch: horizon_client::touch::TouchControls,
-    /// Where the game saw each finger (GUI pixels) and when it lifted, drawn as dots while
-    /// touch input is checked on devices (game/touch.rs).
+    /// The first finger in a menu, as the mouse (game/touch.rs).
     #[cfg(target_os = "ios")]
-    pub(super) touch_dots: Vec<(u64, [f32; 2], Option<Instant>)>,
+    pub(super) menu_touch: horizon_client::touch::MenuTouch,
+    /// A finger on the close or Shift button, ignored until lifted.
+    #[cfg(target_os = "ios")]
+    pub(super) menu_ignored: Option<u64>,
+    /// The touch screen, for the mouse events its fingers make.
+    #[cfg(target_os = "ios")]
+    pub(super) touch_device: Option<winit::event::DeviceId>,
+    /// The Shift toggle over inventories: taps quick-move.
+    #[cfg(target_os = "ios")]
+    pub(super) touch_shift: bool,
+    /// The Shift keys the toggle added for a press, removed at its release.
+    #[cfg(target_os = "ios")]
+    pub(super) shift_added: (bool, bool),
+    /// The system keyboard was asked to show.
+    #[cfg(target_os = "ios")]
+    pub(super) keyboard_shown: bool,
     /// The virtual pad was in use at the last poll.
     virtual_input: bool,
     /// Buttons a `pad ... tap` releases at the next poll.

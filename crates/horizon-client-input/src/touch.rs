@@ -48,17 +48,21 @@ impl Rect {
 pub enum TouchButton {
     Jump,
     Sneak,
+    Sprint,
     Inventory,
+    Chat,
     Perspective,
     Pause,
     Use,
 }
 
 impl TouchButton {
-    pub const ALL: [TouchButton; 6] = [
+    pub const ALL: [TouchButton; 8] = [
         TouchButton::Jump,
         TouchButton::Sneak,
+        TouchButton::Sprint,
         TouchButton::Inventory,
+        TouchButton::Chat,
         TouchButton::Perspective,
         TouchButton::Pause,
         TouchButton::Use,
@@ -68,6 +72,8 @@ impl TouchButton {
         match self {
             TouchButton::Jump => pad.set(Button::South, true),
             TouchButton::Sneak => pad.set(Button::RightStick, true),
+            TouchButton::Sprint => pad.set(Button::LeftStick, true),
+            TouchButton::Chat => pad.set(Button::DPadRight, true),
             TouchButton::Inventory => pad.set(Button::North, true),
             TouchButton::Perspective => pad.set(Button::DPadUp, true),
             TouchButton::Pause => pad.set(Button::Start, true),
@@ -98,21 +104,25 @@ impl TouchLayout {
         let left = (self.width / 2.0).floor() - 91.0;
         Rect::new(left + n as f32 * 20.0 + 1.0, self.height - 22.0, 20.0, 22.0)
     }
+    /// Bedrock's layout: jump on the right with sneak under it and sprint to its left, the
+    /// small chat, perspective and pause buttons along the top, "..." at the hotbar's end.
     pub fn button(&self, button: TouchButton) -> Rect {
         let (w, h, m) = (self.width, self.height, self.inset);
-        let big = 32.0;
-        let small = 20.0;
-        let jump = Rect::new(w - m - big, h - big - 34.0, big, big);
+        let big = 30.0;
+        let small = 18.0;
+        let jump = Rect::new(w - m - big, (h * 0.55).floor(), big, big);
+        let top = |n: f32| Rect::new(w - m - small - n * (small + 5.0), 4.0, small, small);
         match button {
             TouchButton::Jump => jump,
-            TouchButton::Sneak => Rect::new(jump.x - big - 8.0, jump.y + 10.0, big, big),
-            // Bedrock's "..." at the hotbar's right end.
+            TouchButton::Sneak => Rect::new(jump.x, jump.y + big + 5.0, big, big),
+            TouchButton::Sprint => Rect::new(jump.x - big - 5.0, jump.y, big, big),
             TouchButton::Inventory => {
                 let slot = self.hotbar_slot(8);
-                Rect::new(slot.x + slot.w + 4.0, h - 22.0, small, 22.0)
+                Rect::new(slot.x + slot.w + 3.0, h - 22.0, 22.0, 22.0)
             }
-            TouchButton::Pause => Rect::new(w - m - small, 4.0, small, small),
-            TouchButton::Perspective => Rect::new(w - m - 2.0 * small - 6.0, 4.0, small, small),
+            TouchButton::Pause => top(0.0),
+            TouchButton::Chat => top(1.0),
+            TouchButton::Perspective => top(2.0),
             // Below and right of the crosshair, under the right thumb.
             TouchButton::Use => Rect::new((w / 2.0).floor() + 24.0, (h / 2.0).floor() + 14.0, 40.0, 18.0),
         }
@@ -120,6 +130,19 @@ impl TouchLayout {
     /// Where a thumb starts the joystick: the left part of the screen, below the top.
     pub fn joystick_zone(&self) -> Rect {
         Rect::new(0.0, 28.0, self.width * 0.4, self.height - 28.0)
+    }
+    /// The joystick's centre while no thumb is on it.
+    pub fn joystick_rest(&self) -> [f32; 2] {
+        [self.inset + 40.0, self.height - 56.0]
+    }
+    /// The close button over menus (Escape), top right.
+    pub fn close(&self) -> Rect {
+        Rect::new(self.width - self.inset - 20.0, 4.0, 20.0, 20.0)
+    }
+    /// The Shift toggle under it in inventories: taps quick-move while it is on.
+    pub fn shift(&self) -> Rect {
+        let close = self.close();
+        Rect::new(close.x, close.y + close.h + 5.0, 20.0, 20.0)
     }
 }
 
@@ -370,6 +393,130 @@ impl TouchControls {
     }
 }
 
+/// A menu finger held this long without moving presses where it is: the right button over an
+/// inventory's slots (split a stack, place one), else the left (drag a slider or scrollbar).
+pub const MENU_HOLD: Duration = Duration::from_millis(350);
+
+/// What a finger in a menu does as the mouse, in GUI pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MenuAction {
+    Move([f32; 2]),
+    Press { right: bool },
+    Release { right: bool },
+    /// The list under the finger follows it: positive when the finger moved down.
+    Scroll(f32),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MenuMode {
+    /// Down, not yet a tap, a scroll or a drag.
+    Undecided,
+    Scroll,
+    Drag { right: bool },
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MenuFinger {
+    id: u64,
+    start: [f32; 2],
+    last: [f32; 2],
+    since: Instant,
+    mode: MenuMode,
+}
+
+/// The first finger in a menu, as the mouse. Buttons in menus act when pressed, so the press
+/// waits until the finger shows what it does: lifted, it was a tap (a click); moved up or down,
+/// it scrolls the list (no click); moved sideways, or over an inventory's slots, it drags with
+/// the button down from where it started; held still, it presses there (see [`MENU_HOLD`]).
+#[derive(Debug, Default)]
+pub struct MenuTouch {
+    finger: Option<MenuFinger>,
+}
+
+impl MenuTouch {
+    pub fn owns(&self, id: u64) -> bool {
+        self.finger.is_some_and(|f| f.id == id)
+    }
+
+    pub fn start(&mut self, id: u64, at: [f32; 2], now: Instant) -> Vec<MenuAction> {
+        if self.finger.is_some() {
+            return Vec::new();
+        }
+        self.finger = Some(MenuFinger {
+            id,
+            start: at,
+            last: at,
+            since: now,
+            mode: MenuMode::Undecided,
+        });
+        vec![MenuAction::Move(at)]
+    }
+
+    /// `slots`: the menu is an inventory, where a drag moves items instead of scrolling.
+    pub fn moved(&mut self, id: u64, at: [f32; 2], slots: bool) -> Vec<MenuAction> {
+        let Some(f) = self.finger.as_mut().filter(|f| f.id == id) else {
+            return Vec::new();
+        };
+        let actions = match f.mode {
+            MenuMode::Undecided if distance(f.start, at) <= SLOP => Vec::new(),
+            MenuMode::Undecided => {
+                let (dx, dy) = (at[0] - f.start[0], at[1] - f.start[1]);
+                if !slots && dy.abs() > dx.abs() {
+                    f.mode = MenuMode::Scroll;
+                    vec![MenuAction::Scroll(dy)]
+                } else {
+                    f.mode = MenuMode::Drag { right: false };
+                    vec![
+                        MenuAction::Move(f.start),
+                        MenuAction::Press { right: false },
+                        MenuAction::Move(at),
+                    ]
+                }
+            }
+            MenuMode::Scroll => vec![MenuAction::Scroll(at[1] - f.last[1])],
+            MenuMode::Drag { .. } => vec![MenuAction::Move(at)],
+        };
+        f.last = at;
+        actions
+    }
+
+    pub fn end(&mut self, id: u64, at: [f32; 2]) -> Vec<MenuAction> {
+        if !self.owns(id) {
+            return Vec::new();
+        }
+        let Some(f) = self.finger.take() else {
+            return Vec::new();
+        };
+        match f.mode {
+            MenuMode::Undecided => vec![
+                MenuAction::Move(f.start),
+                MenuAction::Press { right: false },
+                MenuAction::Release { right: false },
+            ],
+            MenuMode::Scroll => Vec::new(),
+            MenuMode::Drag { right } => vec![MenuAction::Move(at), MenuAction::Release { right }],
+        }
+    }
+
+    /// Once per frame: a finger held still long enough presses.
+    pub fn poll(&mut self, now: Instant, slots: bool) -> Vec<MenuAction> {
+        match self.finger.as_mut() {
+            Some(f)
+                if f.mode == MenuMode::Undecided && now.duration_since(f.since) >= MENU_HOLD =>
+            {
+                f.mode = MenuMode::Drag { right: slots };
+                vec![MenuAction::Move(f.last), MenuAction::Press { right: slots }]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The menu closed or changed: forget the finger (its lift is then ignored).
+    pub fn cancel(&mut self) {
+        self.finger = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +531,86 @@ mod tests {
 
     fn centre(r: Rect) -> [f32; 2] {
         [r.x + r.w / 2.0, r.y + r.h / 2.0]
+    }
+
+    #[test]
+    fn menu_tap_clicks_on_lift() {
+        let t0 = Instant::now();
+        let mut m = MenuTouch::default();
+        assert_eq!(m.start(1, [100.0, 50.0], t0), [MenuAction::Move([100.0, 50.0])]);
+        assert!(m.moved(1, [102.0, 51.0], false).is_empty(), "within the slop");
+        assert!(m.poll(t0 + Duration::from_millis(100), false).is_empty());
+        assert_eq!(
+            m.end(1, [102.0, 51.0]),
+            [
+                MenuAction::Move([100.0, 50.0]),
+                MenuAction::Press { right: false },
+                MenuAction::Release { right: false },
+            ]
+        );
+        assert!(!m.owns(1));
+    }
+
+    #[test]
+    fn menu_vertical_drag_scrolls_without_clicking() {
+        let t0 = Instant::now();
+        let mut m = MenuTouch::default();
+        m.start(1, [100.0, 50.0], t0);
+        assert_eq!(m.moved(1, [101.0, 70.0], false), [MenuAction::Scroll(20.0)]);
+        assert_eq!(m.moved(1, [101.0, 60.0], false), [MenuAction::Scroll(-10.0)]);
+        assert!(m.poll(t0 + MENU_HOLD * 2, false).is_empty(), "scrolling never presses");
+        assert!(m.end(1, [101.0, 60.0]).is_empty());
+    }
+
+    #[test]
+    fn menu_sideways_drag_presses_where_it_started() {
+        let t0 = Instant::now();
+        let mut m = MenuTouch::default();
+        m.start(1, [100.0, 50.0], t0);
+        assert_eq!(
+            m.moved(1, [120.0, 52.0], false),
+            [
+                MenuAction::Move([100.0, 50.0]),
+                MenuAction::Press { right: false },
+                MenuAction::Move([120.0, 52.0]),
+            ]
+        );
+        assert_eq!(
+            m.end(1, [130.0, 52.0]),
+            [MenuAction::Move([130.0, 52.0]), MenuAction::Release { right: false }]
+        );
+    }
+
+    #[test]
+    fn inventory_drags_and_long_presses() {
+        let t0 = Instant::now();
+        let mut m = MenuTouch::default();
+        // Up and down over slots drags an item instead of scrolling.
+        m.start(1, [100.0, 50.0], t0);
+        assert_eq!(m.moved(1, [100.0, 80.0], true)[1], MenuAction::Press { right: false });
+        m.end(1, [100.0, 80.0]);
+        // Held still: the right button.
+        m.start(2, [100.0, 50.0], t0);
+        assert!(m.poll(t0 + MENU_HOLD / 2, true).is_empty());
+        assert_eq!(
+            m.poll(t0 + MENU_HOLD, true),
+            [MenuAction::Move([100.0, 50.0]), MenuAction::Press { right: true }]
+        );
+        assert!(m.poll(t0 + MENU_HOLD * 2, true).is_empty(), "once");
+        assert_eq!(m.end(2, [100.0, 50.0])[1], MenuAction::Release { right: true });
+        // Elsewhere a hold presses the left button (a slider).
+        m.start(3, [100.0, 50.0], t0);
+        assert_eq!(m.poll(t0 + MENU_HOLD, false)[1], MenuAction::Press { right: false });
+    }
+
+    #[test]
+    fn menu_second_finger_is_ignored() {
+        let t0 = Instant::now();
+        let mut m = MenuTouch::default();
+        m.start(1, [100.0, 50.0], t0);
+        assert!(m.start(2, [200.0, 50.0], t0).is_empty());
+        assert!(m.end(2, [200.0, 50.0]).is_empty());
+        assert!(m.owns(1));
     }
 
     #[test]

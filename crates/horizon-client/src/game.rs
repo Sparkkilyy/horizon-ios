@@ -6061,8 +6061,6 @@ impl Game<'_> {
         #[cfg(target_os = "ios")]
         self.draw_touch_controls(&mut batch);
         self.draw_pad_cursor(&mut batch);
-        #[cfg(target_os = "ios")]
-        self.draw_touch_dots(&mut batch);
         batch
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
@@ -12815,6 +12813,12 @@ impl ApplicationHandler for Game<'_> {
         if self.window.as_ref().is_none_or(|w| w.id() != id) {
             return;
         }
+        #[cfg(target_os = "ios")]
+        if let WindowEvent::KeyboardInput { event, .. } = &event
+            && self.ios_typed(event)
+        {
+            return;
+        }
         if let WindowEvent::KeyboardInput { event, .. } = &event
             && let PhysicalKey::Code(key) = event.physical_key
         {
@@ -15478,9 +15482,19 @@ impl ApplicationHandler for App {
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         log::info!("Horizon: suspended");
         BACKGROUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(target_os = "ios")]
+        if let App::Ready(game) = self {
+            game.ios_suspend();
+        }
     }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        BACKGROUND.store(false, std::sync::atomic::Ordering::Relaxed);
+        let was_background = BACKGROUND.swap(false, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(target_os = "ios")]
+        if was_background && let App::Ready(game) = self {
+            game.ios_resume();
+        }
+        #[cfg(not(target_os = "ios"))]
+        let _ = was_background;
         match self {
             App::Loading(loading) => loading.resumed(event_loop),
             App::Ready(game) => game.resumed(event_loop),
@@ -15496,11 +15510,8 @@ impl ApplicationHandler for App {
         #[cfg(target_os = "ios")]
         if let WindowEvent::Touch(touch) = event {
             if let App::Ready(game) = self {
-                let controls = game.touch_event(&touch);
-                game.note_touch(&touch, controls);
-                if controls {
-                    return;
-                }
+                game.handle_touch(event_loop, touch);
+                return;
             }
             for event in touch_as_mouse(touch) {
                 self.window_event(event_loop, id, event);
@@ -15520,6 +15531,10 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         #[cfg(target_os = "ios")]
         self.stop_on_error();
+        #[cfg(target_os = "ios")]
+        if let App::Ready(game) = self {
+            game.touch_poll(event_loop);
+        }
         enum Step {
             Waiting,
             Ready(Box<Game<'static>>),
@@ -15577,8 +15592,9 @@ impl ApplicationHandler for App {
 #[cfg(target_os = "ios")]
 static MOUSE_FINGER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 
-/// Until there are touch controls, the first finger down is the mouse: it moves the cursor and
-/// holds the left button, so every menu can be tapped.
+/// While the resources load (the startup menu, before the game's own touch handling in
+/// game/touch.rs), the first finger down is the mouse: it moves the cursor and holds the left
+/// button, so every menu can be tapped.
 #[cfg(target_os = "ios")]
 fn touch_as_mouse(touch: winit::event::Touch) -> Vec<WindowEvent> {
     use std::sync::atomic::Ordering::Relaxed;

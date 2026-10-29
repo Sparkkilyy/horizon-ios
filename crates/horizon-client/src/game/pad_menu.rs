@@ -852,7 +852,7 @@ impl Game<'_> {
     /// A text field has keyboard focus: chat, a sign, a book being written,
     /// a search box, the anvil's name, the title screens' and the options'
     /// fields, the LAN port.
-    fn pad_typing(&self) -> bool {
+    pub(super) fn pad_typing(&self) -> bool {
         (self.screen == Screen::Chat && self.title.is_none())
             || self.sign_edit.is_some()
             || matches!(self.book, Some(super::books::BookScreen::Edit { .. }))
@@ -898,7 +898,7 @@ impl Game<'_> {
 
     /// What a key of the on-screen keyboard does: the same as a typed key in
     /// the field that has focus.
-    fn pad_osk_output(&mut self, out: osk::Output) {
+    pub(super) fn pad_osk_output(&mut self, out: osk::Output) {
         use osk::Output;
         let (key, text) = match &out {
             Output::Text(t) => (None, Some(t.as_str())),
@@ -937,6 +937,17 @@ impl Game<'_> {
         } else if self.screen == Screen::WorldOptions {
             if key != Some(KeyCode::Enter) {
                 self.world_options_text(text);
+            }
+        } else if self.screen == Screen::CommandBlock {
+            match (key, text) {
+                (_, Some(t)) => self.command_block_type(t),
+                (Some(KeyCode::Enter), _) => {
+                    if let Some(s) = self.command_block_screen.take() {
+                        self.set_command_block(&s);
+                    }
+                    self.close_command_block();
+                }
+                _ => {}
             }
         } else if self.screen == Screen::Options {
             let result = match text {
