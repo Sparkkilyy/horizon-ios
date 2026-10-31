@@ -154,7 +154,12 @@ impl TouchLayout {
             // Just under the crosshair.
             TouchButton::Use => {
                 let (uw, uh) = ((40.0 * k).round(), (18.0 * k).round());
-                Rect::new((w / 2.0).floor() - (uw / 2.0).floor(), (h / 2.0).floor() + 14.0, uw, uh)
+                Rect::new(
+                    (w / 2.0).floor() - (uw / 2.0).floor(),
+                    (h / 2.0).floor() + 14.0,
+                    uw,
+                    uh,
+                )
             }
         }
     }
@@ -433,9 +438,7 @@ impl TouchControls {
                         pad.triggers[1] = 1.0;
                     }
                 }
-                Role::Hotbar {
-                    since, dropped, ..
-                } => {
+                Role::Hotbar { since, dropped, .. } => {
                     if !*dropped && now.duration_since(*since) >= HOLD_TO_DROP {
                         *dropped = true;
                         self.drop = true;
@@ -567,8 +570,12 @@ pub const MENU_HOLD: Duration = Duration::from_millis(350);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MenuAction {
     Move([f32; 2]),
-    Press { right: bool },
-    Release { right: bool },
+    Press {
+        right: bool,
+    },
+    Release {
+        right: bool,
+    },
     /// The list under the finger follows it: positive when the finger moved down.
     Scroll(f32),
 }
@@ -578,7 +585,9 @@ enum MenuMode {
     /// Down, not yet a tap, a scroll or a drag.
     Undecided,
     Scroll,
-    Drag { right: bool },
+    Drag {
+        right: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -703,8 +712,14 @@ mod tests {
     fn menu_tap_clicks_on_lift() {
         let t0 = Instant::now();
         let mut m = MenuTouch::default();
-        assert_eq!(m.start(1, [100.0, 50.0], t0), [MenuAction::Move([100.0, 50.0])]);
-        assert!(m.moved(1, [102.0, 51.0], false).is_empty(), "within the slop");
+        assert_eq!(
+            m.start(1, [100.0, 50.0], t0),
+            [MenuAction::Move([100.0, 50.0])]
+        );
+        assert!(
+            m.moved(1, [102.0, 51.0], false).is_empty(),
+            "within the slop"
+        );
         assert!(m.poll(t0 + Duration::from_millis(100), false).is_empty());
         assert_eq!(
             m.end(1, [102.0, 51.0]),
@@ -723,8 +738,14 @@ mod tests {
         let mut m = MenuTouch::default();
         m.start(1, [100.0, 50.0], t0);
         assert_eq!(m.moved(1, [101.0, 70.0], false), [MenuAction::Scroll(20.0)]);
-        assert_eq!(m.moved(1, [101.0, 60.0], false), [MenuAction::Scroll(-10.0)]);
-        assert!(m.poll(t0 + MENU_HOLD * 2, false).is_empty(), "scrolling never presses");
+        assert_eq!(
+            m.moved(1, [101.0, 60.0], false),
+            [MenuAction::Scroll(-10.0)]
+        );
+        assert!(
+            m.poll(t0 + MENU_HOLD * 2, false).is_empty(),
+            "scrolling never presses"
+        );
         assert!(m.end(1, [101.0, 60.0]).is_empty());
     }
 
@@ -743,7 +764,10 @@ mod tests {
         );
         assert_eq!(
             m.end(1, [130.0, 52.0]),
-            [MenuAction::Move([130.0, 52.0]), MenuAction::Release { right: false }]
+            [
+                MenuAction::Move([130.0, 52.0]),
+                MenuAction::Release { right: false }
+            ]
         );
     }
 
@@ -753,20 +777,32 @@ mod tests {
         let mut m = MenuTouch::default();
         // Up and down over slots drags an item instead of scrolling.
         m.start(1, [100.0, 50.0], t0);
-        assert_eq!(m.moved(1, [100.0, 80.0], true)[1], MenuAction::Press { right: false });
+        assert_eq!(
+            m.moved(1, [100.0, 80.0], true)[1],
+            MenuAction::Press { right: false }
+        );
         m.end(1, [100.0, 80.0]);
         // Held still: the right button.
         m.start(2, [100.0, 50.0], t0);
         assert!(m.poll(t0 + MENU_HOLD / 2, true).is_empty());
         assert_eq!(
             m.poll(t0 + MENU_HOLD, true),
-            [MenuAction::Move([100.0, 50.0]), MenuAction::Press { right: true }]
+            [
+                MenuAction::Move([100.0, 50.0]),
+                MenuAction::Press { right: true }
+            ]
         );
         assert!(m.poll(t0 + MENU_HOLD * 2, true).is_empty(), "once");
-        assert_eq!(m.end(2, [100.0, 50.0])[1], MenuAction::Release { right: true });
+        assert_eq!(
+            m.end(2, [100.0, 50.0])[1],
+            MenuAction::Release { right: true }
+        );
         // Elsewhere a hold presses the left button (a slider).
         m.start(3, [100.0, 50.0], t0);
-        assert_eq!(m.poll(t0 + MENU_HOLD, false)[1], MenuAction::Press { right: false });
+        assert_eq!(
+            m.poll(t0 + MENU_HOLD, false)[1],
+            MenuAction::Press { right: false }
+        );
     }
 
     #[test]
@@ -787,7 +823,10 @@ mod tests {
         c.start(1, pause, t0);
         assert!(!c.frame(t0).pad.held(Button::Start), "nothing while held");
         c.end(1, pause, t0 + Duration::from_millis(100));
-        assert!(c.frame(t0).pad.held(Button::Start), "a tap pauses when lifted");
+        assert!(
+            c.frame(t0).pad.held(Button::Start),
+            "a tap pauses when lifted"
+        );
         c.start(2, pause, t0);
         let f = c.frame(t0 + HOLD_FOR_DEBUG);
         assert!(f.debug && !f.pad.held(Button::Start));
@@ -805,10 +844,12 @@ mod tests {
             haptics: false,
         };
         assert_eq!(TouchSettings::parse(&s.serialize()), s);
-        let wild = TouchSettings::parse("lookSensitivity:99
+        let wild = TouchSettings::parse(
+            "lookSensitivity:99
 opacity:x
 buttonScale:0.1
-");
+",
+        );
         assert_eq!(wild.look_sensitivity, 3.0);
         assert_eq!(wild.opacity, 1.0);
         assert_eq!(wild.button_scale, 0.75);
@@ -839,9 +880,15 @@ buttonScale:0.1
                 let mut rects: Vec<Rect> = TouchButton::ALL.iter().map(|&b| l.button(b)).collect();
                 rects.extend((0..9).map(|n| l.hotbar_slot(n)));
                 for (i, a) in rects.iter().enumerate() {
-                    assert!(a.x >= 0.0 && a.y >= 0.0 && a.x + a.w <= w && a.y + a.h <= h, "{a:?} off a {w}x{h} screen at {scale}");
+                    assert!(
+                        a.x >= 0.0 && a.y >= 0.0 && a.x + a.w <= w && a.y + a.h <= h,
+                        "{a:?} off a {w}x{h} screen at {scale}"
+                    );
                     for b in &rects[i + 1..] {
-                        let apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+                        let apart = a.x + a.w <= b.x
+                            || b.x + b.w <= a.x
+                            || a.y + a.h <= b.y
+                            || b.y + b.h <= a.y;
                         assert!(apart, "{a:?} overlaps {b:?} on {w}x{h} at {scale}");
                     }
                 }
@@ -857,10 +904,8 @@ buttonScale:0.1
         for (i, a) in rects.iter().enumerate() {
             assert!(a.x >= 0.0 && a.y >= 0.0 && a.x + a.w <= 633.0 && a.y + a.h <= 293.0);
             for b in &rects[i + 1..] {
-                let apart = a.x + a.w <= b.x
-                    || b.x + b.w <= a.x
-                    || a.y + a.h <= b.y
-                    || b.y + b.h <= a.y;
+                let apart =
+                    a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
                 assert!(apart, "{a:?} overlaps {b:?}");
             }
         }
@@ -901,7 +946,11 @@ buttonScale:0.1
         let mut c = controls();
         let at = centre(c.layout.button(TouchButton::Use));
         c.start(1, at, now);
-        assert_eq!(c.frame(now).pad.triggers[0], 0.0, "hidden: the view takes it");
+        assert_eq!(
+            c.frame(now).pad.triggers[0],
+            0.0,
+            "hidden: the view takes it"
+        );
         c.end(1, at, now);
         assert!(c.frame(now).tap);
         c.use_shown = true;

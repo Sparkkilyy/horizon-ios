@@ -8,12 +8,12 @@ pub use crate::settings::Opt;
 
 use crate::{
     gamepad::{self, GlyphStyle},
-    touch::TouchSettings,
     hud::{HudAtlas, HudBatch, rgba},
     keybinds::{self, CATEGORIES, KeyBinds, MAPPINGS},
     lang::{self, LanguageInfo},
     settings::{SOUND_SOURCES, Settings},
     text::{self, Style, Text},
+    touch::TouchSettings,
     ui,
 };
 
@@ -2846,7 +2846,10 @@ impl OptionsUi {
     /// keyboard shows for it).
     pub fn text_focused(&self) -> bool {
         match self.page() {
-            Page::Packs => self.pack_screen.as_ref().is_some_and(|p| p.search_focused()),
+            Page::Packs => self
+                .pack_screen
+                .as_ref()
+                .is_some_and(|p| p.search_focused()),
             Page::Language => self.language_search.focused,
             _ => self.settings_search_active(),
         }

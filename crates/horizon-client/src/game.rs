@@ -1,5 +1,7 @@
 //! The playable game loop: streaming world, player simulation at 20 ticks/s,
 //! block interaction, inventory and HUD.
+#[cfg(target_os = "ios")]
+mod account;
 mod advancements;
 mod advancements_screen;
 mod agent;
@@ -134,10 +136,6 @@ mod options;
 mod packs;
 mod pad;
 mod pad_menu;
-#[cfg(target_os = "ios")]
-mod touch;
-#[cfg(target_os = "ios")]
-mod account;
 mod paintings;
 mod pandas;
 mod passengers;
@@ -198,6 +196,8 @@ mod text_displays;
 mod titles;
 mod tnt;
 mod totem;
+#[cfg(target_os = "ios")]
+mod touch;
 mod trading;
 mod trial_spawner;
 mod trial_visuals;

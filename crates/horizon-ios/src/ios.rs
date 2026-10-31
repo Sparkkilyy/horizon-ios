@@ -97,7 +97,8 @@ pub fn controller() -> Option<(PadState, GlyphStyle)> {
     // Safety: GameController's polling getters are safe to call from the main thread, which
     // the game's loop is; every object returned is retained.
     unsafe {
-        let controller = GCController::current().or_else(|| GCController::controllers().firstObject())?;
+        let controller =
+            GCController::current().or_else(|| GCController::controllers().firstObject())?;
         let pad = controller.extendedGamepad()?;
         let mut state = PadState::default();
         let mut button = |b: Button, input: &GCControllerButtonInput| {

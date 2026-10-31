@@ -60,7 +60,11 @@ pub fn haptic(strength: f32) {
 
 /// A message with an OK button over the app, from its window's view controller (winit's
 /// `UiKitWindowHandle::ui_view_controller`).
-pub fn alert(view_controller: Option<std::ptr::NonNull<std::ffi::c_void>>, title: &str, message: &str) {
+pub fn alert(
+    view_controller: Option<std::ptr::NonNull<std::ffi::c_void>>,
+    title: &str,
+    message: &str,
+) {
     #[cfg(target_os = "ios")]
     ios::alert(view_controller, title, message);
     #[cfg(not(target_os = "ios"))]

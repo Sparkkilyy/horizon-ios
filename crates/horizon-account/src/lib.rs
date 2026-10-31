@@ -78,7 +78,7 @@ fn send(request: ureq::Request, body: Option<Body>, service: &str) -> Result<(u1
         Err(ureq::Error::Transport(_)) => {
             return Err(format!(
                 "Could not reach {service}. Check your internet connection."
-            ))
+            ));
         }
     };
     let status = response.status();
@@ -474,7 +474,7 @@ enum Check {
     /// It owns the game: its profile as it is now (the name may have changed) and its tokens.
     Owns(Account, Secrets),
     /// The services said it doesn't own the game (or has no profile any more).
-    DoesNot(Secrets),
+    DoesNot,
     /// No answer (no network, a sign-in that can't be renewed): the last answer stands.
     NoAnswer(String, Secrets),
 }
@@ -501,10 +501,7 @@ fn check(ep: &Endpoints, client_id: Option<&str>, account: &Account, secrets: Se
     let token = &secrets.minecraft_token;
     match owns_game(ep, token).and_then(|owns| Ok(if owns { profile(ep, token)? } else { None })) {
         Err(e) => Check::NoAnswer(e, secrets),
-        Ok(None) => Check::DoesNot(Secrets {
-            owns: false,
-            ..secrets
-        }),
+        Ok(None) => Check::DoesNot,
         Ok(Some(p)) if p.uuid != account.uuid => Check::NoAnswer(OTHER_PROFILE.into(), secrets),
         Ok(Some(p)) => Check::Owns(
             p,
@@ -566,19 +563,20 @@ impl Saved {
     }
 
     /// Renew the Minecraft token when it has less than an hour left and ask again whether the
-    /// account owns the game. Without an answer (offline) a token that is still valid stands.
-    pub fn renew(self) -> Result<Self, (String, Option<Self>)> {
+    /// account owns the game. Without an answer (offline) a token that is still valid stands; the
+    /// error carries the account to keep, if any (boxed: a `Saved` is large).
+    pub fn renew(self) -> Result<Self, Box<(String, Option<Self>)>> {
         let ep = Endpoints::live();
         let id = client_id();
         let Saved { account, secrets } = self;
         match check(&ep, id.as_deref(), &account, secrets) {
             Check::Owns(account, secrets) => Ok(Saved { account, secrets }),
-            Check::DoesNot(_) => Err((DOES_NOT_OWN.into(), None)),
+            Check::DoesNot => Err(Box::new((DOES_NOT_OWN.into(), None))),
             Check::NoAnswer(e, secrets) => {
                 if secrets.owns && secrets.minecraft_expires_at > now() {
                     Ok(Saved { account, secrets })
                 } else {
-                    Err((e, Some(Saved { account, secrets })))
+                    Err(Box::new((e, Some(Saved { account, secrets }))))
                 }
             }
         }
@@ -648,7 +646,10 @@ mod tests {
             oauth_error(&json!({ "error": "expired_token" })),
             "The sign-in code expired. Start again."
         );
-        assert_eq!(oauth_error(&json!({ "error": "invalid_grant" })), SIGN_IN_AGAIN);
+        assert_eq!(
+            oauth_error(&json!({ "error": "invalid_grant" })),
+            SIGN_IN_AGAIN
+        );
         assert!(xsts_error(2148916233).contains("Xbox profile"));
         assert!(xsts_error(1).contains("error 1"));
     }
